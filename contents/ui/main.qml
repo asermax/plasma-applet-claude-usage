@@ -417,12 +417,13 @@ PlasmoidItem {
             Layout.fillHeight: true
             spacing: Kirigami.Units.smallSpacing
 
+            Item { Layout.fillHeight: true }
+
             Kirigami.Icon {
                 source: "dialog-information"
                 implicitWidth: Kirigami.Units.gridUnit * 3
                 implicitHeight: Kirigami.Units.gridUnit * 3
                 Layout.alignment: Qt.AlignHCenter
-                Layout.topMargin: Kirigami.Units.gridUnit
             }
 
             PlasmaComponents.Label {
@@ -435,12 +436,14 @@ PlasmoidItem {
                 text: "1. Go to claude.ai and login\n2. Open DevTools (F12)\n3. Application → Cookies\n4. Copy 'sessionKey' value\n5. Click configure button above"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
-                Layout.alignment: Qt.AlignHCenter
+                Layout.fillWidth: true
                 Layout.leftMargin: Kirigami.Units.gridUnit
                 Layout.rightMargin: Kirigami.Units.gridUnit
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
+
+            Item { Layout.fillHeight: true }
         }
 
         // Error state
