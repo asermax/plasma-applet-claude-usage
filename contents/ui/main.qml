@@ -178,23 +178,20 @@ PlasmoidItem {
 
         // Session (5-hour window)
         if (data.five_hour && data.five_hour.utilization !== undefined) {
-            var sessionResets = parseISODate(data.five_hour.resets_at)
             usageData.session = {
                 used: data.five_hour.utilization,
                 resets_at: data.five_hour.resets_at,
-                resets_in: formatTimeRemaining(sessionResets),
-                resets_date: formatResetDate(sessionResets)
+                resets_in: formatTimeRemaining(parseISODate(data.five_hour.resets_at))
             }
         }
 
         // Weekly (7-day window)
         if (data.seven_day && data.seven_day.utilization !== undefined) {
-            var weeklyResets = parseISODate(data.seven_day.resets_at)
             usageData.weekly = {
                 used: data.seven_day.utilization,
                 resets_at: data.seven_day.resets_at,
-                resets_in: formatTimeRemaining(weeklyResets),
-                resets_date: formatResetDate(weeklyResets)
+                resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at)),
+                resets_date: formatResetDate(parseISODate(data.seven_day.resets_at))
             }
         }
 
@@ -428,7 +425,7 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                text: "1. Go to claude.ai and login\n2. Open browser DevTools (F12)\n3. Go to Application → Cookies\n4. Copy the 'sessionKey' value\n5. Click configure button above"
+                text: "1. Go to claude.ai and login\n2. Open DevTools (F12)\n3. Application → Cookies\n4. Copy 'sessionKey' value\n5. Click configure button above"
                 font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
                 Layout.alignment: Qt.AlignHCenter
@@ -467,11 +464,31 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 spacing: PlasmaCore.Units.smallSpacing
 
-                Kirigami.ProgressBar {
+                // Custom Progress Bar
+                Rectangle {
+                    id: sessionProgress
                     Layout.fillWidth: true
-                    from: 0
-                    to: 100
-                    value: usageData && usageData.session ? usageData.session.used : 0
+                    implicitHeight: PlasmaCore.Units.gridUnit * 0.4
+                    radius: height / 2
+                    color: Kirigami.Theme.alternateBackgroundColor
+
+                    property real progressValue: usageData && usageData.session ? usageData.session.used : 0
+                    property color progressColor: usageData && usageData.session
+                        ? getUsageColor(usageData.session.used)
+                        : Kirigami.Theme.highlightColor
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                        radius: parent.radius
+                        color: parent.progressColor
+
+                        Behavior on width {
+                            NumberAnimation { duration: 200 }
+                        }
+                    }
                 }
 
                 PlasmaComponents.Label {
@@ -511,11 +528,29 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 spacing: PlasmaCore.Units.smallSpacing
 
-                Kirigami.ProgressBar {
+                // Custom Progress Bar
+                Rectangle {
                     Layout.fillWidth: true
-                    from: 0
-                    to: 100
-                    value: usageData && usageData.weekly ? usageData.weekly.used : 0
+                    implicitHeight: PlasmaCore.Units.gridUnit * 0.4
+                    radius: height / 2
+                    color: Kirigami.Theme.alternateBackgroundColor
+
+                    property real progressValue: usageData && usageData.weekly ? usageData.weekly.used : 0
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.bottom: parent.bottom
+                        width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                        radius: parent.radius
+                        color: usageData && usageData.weekly
+                            ? getUsageColor(usageData.weekly.used)
+                            : Kirigami.Theme.highlightColor
+
+                        Behavior on width {
+                            NumberAnimation { duration: 200 }
+                        }
+                    }
                 }
 
                 PlasmaComponents.Label {
@@ -557,7 +592,6 @@ PlasmoidItem {
 
                     var used = usageData.extra_usage.used.toFixed(2)
                     var limit = usageData.extra_usage.limit.toFixed(2)
-                    var currency = usageData.extra_usage.currency || "USD"
 
                     return "$" + used + " / $" + limit + " used"
                 }
@@ -570,7 +604,7 @@ PlasmoidItem {
             Layout.fillHeight: true
         }
 
-        // Footer
+        // Footer with last updated time
         PlasmaComponents.Label {
             Layout.fillWidth: true
             text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated) : ""

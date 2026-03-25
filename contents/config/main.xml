@@ -7,12 +7,6 @@
     <kcfgfile name=""/>
 
     <group name="General">
-        <entry name="sessionKey" type="String">
-            <default></default>
-            <label>Session Key</label>
-            <whatsthis>The sessionKey cookie value from claude.ai (found in browser DevTools → Application → Cookies)</whatsthis>
-        </entry>
-
         <entry name="refreshInterval" type="Int">
             <default>300</default>
             <label>Refresh interval in seconds</label>
@@ -41,6 +35,12 @@
             <whatsthis>Usage percentage above which the color changes to critical (red)</whatsthis>
             <min>0</min>
             <max>100</max>
+        </entry>
+
+        <entry name="sessionKey" type="String">
+            <default></default>
+            <label>Session Key</label>
+            <whatsthis>The sessionKey cookie value from claude.ai (found in browser DevTools → Application → Cookies)</whatsthis>
         </entry>
     </group>
 

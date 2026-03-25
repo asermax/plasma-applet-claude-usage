@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.components as PlasmaComponents
 
 Kirigami.FormLayout {
     id: configPage
@@ -12,41 +13,31 @@ Kirigami.FormLayout {
     property alias cfg_warningThreshold: warningThresholdSpinBox.value
     property alias cfg_criticalThreshold: criticalThresholdSpinBox.value
 
-    // Session Key
-    ColumnLayout {
+    Kirigami.Separator {
+        Kirigami.FormData.isSection: true
+        Kirigami.FormData.label: i18n("Authentication")
+    }
+
+    // Session key
+    TextField {
+        id: sessionKeyField
         Kirigami.FormData.label: i18n("Session Key:")
-        spacing: Kirigami.Units.smallSpacing
+        placeholderText: i18n("Paste your claude.ai sessionKey cookie here")
+        echoMode: TextInput.Password
+        Layout.fillWidth: true
+    }
 
-        TextField {
-            id: sessionKeyField
-            placeholderText: i18n("sk-ant-...")
-            echoMode: TextInput.Password
-            Layout.fillWidth: true
-            Layout.minimumWidth: Kirigami.Units.gridUnit * 20
-        }
+    PlasmaComponents.Label {
+        Layout.fillWidth: true
+        text: i18n("To get your session key:\n1. Go to claude.ai and your browser and login\n2. Open DevTools (F12) → Application → Cookies\n3. Copy the 'sessionKey' value")
+        font: Kirigami.Theme.smallFont
+        color: Kirigami.Theme.disabledTextColor
+        wrapMode: Text.WordWrap
+        Layout.topMargin: Kirigami.Units.smallSpacing
+    }
 
-        RowLayout {
-            spacing: Kirigami.Units.smallSpacing
-
-            Label {
-                text: i18n("How to get:")
-                font: Kirigami.Theme.smallFont
-                color: Kirigami.Theme.disabledTextColor
-            }
-
-            Label {
-                text: "<a href='#'>claude.ai → DevTools → Application → Cookies → sessionKey</a>"
-                font: Kirigami.Theme.smallFont
-                color: Kirigami.Theme.disabledTextColor
-                textFormat: Text.RichText
-                onLinkActivated: Qt.openUrlExternally("https://claude.ai")
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.NoButton
-                    cursorShape: parent.hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
-                }
-            }
-        }
+    Item {
+        Layout.fillHeight: true
     }
 
     Kirigami.Separator {
@@ -67,19 +58,14 @@ Kirigami.FormLayout {
     // Show weekly in tray
     CheckBox {
         id: showWeeklyInTrayCheckBox
-        Kirigami.FormData.label: i18n("Tray display:")
-        text: i18n("Show weekly usage instead of session")
-    }
-
-    Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: i18n("Color Thresholds")
+        Kirigami.FormData.label: i18n("Show weekly in tray:")
+        text: i18n("Display weekly usage instead of session")
     }
 
     // Warning threshold
     SpinBox {
         id: warningThresholdSpinBox
-        Kirigami.FormData.label: i18n("Warning color (%):")
+        Kirigami.FormData.label: i18n("Warning threshold (%):")
         from: 0
         to: 100
         stepSize: 5
@@ -89,14 +75,10 @@ Kirigami.FormLayout {
     // Critical threshold
     SpinBox {
         id: criticalThresholdSpinBox
-        Kirigami.FormData.label: i18n("Critical color (%):")
+        Kirigami.FormData.label: i18n("Critical threshold (%):")
         from: 0
         to: 100
         stepSize: 5
         editable: true
-    }
-
-    Item {
-        Layout.fillHeight: true
     }
 }
