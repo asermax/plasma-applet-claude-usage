@@ -7,6 +7,12 @@
     <kcfgfile name=""/>
 
     <group name="General">
+        <entry name="sessionKey" type="String">
+            <default></default>
+            <label>Session Key</label>
+            <whatsthis>The sessionKey cookie value from claude.ai (found in browser DevTools → Application → Cookies)</whatsthis>
+        </entry>
+
         <entry name="refreshInterval" type="Int">
             <default>300</default>
             <label>Refresh interval in seconds</label>
@@ -35,18 +41,6 @@
             <whatsthis>Usage percentage above which the color changes to critical (red)</whatsthis>
             <min>0</min>
             <max>100</max>
-        </entry>
-
-        <entry name="manualSessionKey" type="String">
-            <default></default>
-            <label>Manual session key</label>
-            <whatsthis>Optional: Manual sessionKey cookie value. If set, overrides browser cookie extraction.</whatsthis>
-        </entry>
-
-        <entry name="browserType" type="String">
-            <default>auto</default>
-            <label>Browser type for cookie extraction</label>
-            <whatsthis>Which browser to extract cookies from: auto, chrome, or firefox</whatsthis>
         </entry>
     </group>
 

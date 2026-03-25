@@ -16,18 +16,13 @@ PlasmoidItem {
     property string lastError: ""
     property bool isLoading: false
     property var lastUpdated: null
-    property bool serverRunning: false
 
     // Configuration properties
+    property string cfg_sessionKey: plasmoid.configuration.sessionKey
     property int cfg_refreshInterval: plasmoid.configuration.refreshInterval
     property bool cfg_showWeeklyInTray: plasmoid.configuration.showWeeklyInTray
     property int cfg_warningThreshold: plasmoid.configuration.warningThreshold
     property int cfg_criticalThreshold: plasmoid.configuration.criticalThreshold
-    property string cfg_manualSessionKey: plasmoid.configuration.manualSessionKey
-    property string cfg_browserType: plasmoid.configuration.browserType
-
-    // Server URL
-    readonly property string serverUrl: "http://127.0.0.1:17432"
 
     // ============================================================
     // Timer for periodic refresh
@@ -36,140 +31,221 @@ PlasmoidItem {
     Timer {
         id: refreshTimer
         interval: cfg_refreshInterval * 1000
-        running: true
+        running: cfg_sessionKey !== ""
         repeat: true
         onTriggered: fetchUsage()
-    }
-
-    // Timer to start server if not running
-    Timer {
-        id: serverCheckTimer
-        interval: 5000
-        running: true
-        repeat: true
-        onTriggered: checkServer()
     }
 
     // ============================================================
     // Functions
     // ============================================================
 
-    function checkServer() {
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", serverUrl + "/health", true)
-        xhr.timeout = 2000
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                var wasRunning = serverRunning
-                serverRunning = xhr.status === 200
-
-                if (!serverRunning && !wasRunning) {
-                    // Server not running, try to start it
-                    startServer()
-                }
-            }
-        }
-        xhr.onerror = function() {
-            serverRunning = false
-        }
-        xhr.send()
-    }
-
-    function startServer() {
-        // The server needs to be started externally or via systemd
-        // For now, we'll show an error if it's not running
-        if (!serverRunning) {
-            lastError = "Server not running. Start with: python3 " + getScriptPath() + " --server &"
-        }
-    }
-
-    function getScriptPath() {
-        return Qt.resolvedUrl("../code/claude-usage.py").toString().replace("file://", "")
-    }
-
     function fetchUsage() {
-        if (isLoading) return
+        if (isLoading || !cfg_sessionKey) return
 
         isLoading = true
+        lastError = ""
 
-        var xhr = new XMLHttpRequest()
-        xhr.open("GET", serverUrl + "/usage", true)
-        xhr.timeout = 15000
+        // First get organization
+        var orgXhr = new XMLHttpRequest()
+        orgXhr.open("GET", "https://claude.ai/api/organizations", true)
+        orgXhr.setRequestHeader("Cookie", "sessionKey=" + cfg_sessionKey)
+        orgXhr.setRequestHeader("Accept", "application/json")
+        orgXhr.timeout = 15000
 
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                isLoading = false
-
-                if (xhr.status === 200) {
+        orgXhr.onreadystatechange = function() {
+            if (orgXhr.readyState === XMLHttpRequest.DONE) {
+                if (orgXhr.status === 200) {
                     try {
-                        var result = JSON.parse(xhr.responseText)
-                        usageData = result
-                        lastError = result.error || ""
-                        lastUpdated = new Date()
-                        serverRunning = true
+                        var orgs = JSON.parse(orgXhr.responseText)
+                        var orgId = null
+
+                        // Find org with chat capability
+                        for (var i = 0; i < orgs.length; i++) {
+                            if (orgs[i].capabilities && orgs[i].capabilities.indexOf("chat") >= 0) {
+                                orgId = orgs[i].uuid
+                                break
+                            }
+                        }
+
+                        if (!orgId && orgs.length > 0) {
+                            orgId = orgs[0].uuid
+                        }
+
+                        if (orgId) {
+                            fetchUsageData(orgId)
+                        } else {
+                            isLoading = false
+                            lastError = "No organization found"
+                        }
                     } catch (e) {
-                        lastError = "Failed to parse response"
-                        usageData = null
+                        isLoading = false
+                        lastError = "Failed to parse organizations"
                     }
+                } else if (orgXhr.status === 401 || orgXhr.status === 403) {
+                    isLoading = false
+                    lastError = "Session expired - update cookie in config"
                 } else {
-                    lastError = "Server error: " + xhr.status
-                    serverRunning = false
+                    isLoading = false
+                    lastError = "Failed to fetch organizations: " + orgXhr.status
                 }
             }
         }
 
-        xhr.onerror = function() {
+        orgXhr.onerror = function() {
             isLoading = false
-            lastError = "Connection failed"
-            serverRunning = false
+            lastError = "Network error"
         }
 
-        xhr.ontimeout = function() {
+        orgXhr.ontimeout = function() {
             isLoading = false
             lastError = "Request timed out"
         }
 
-        xhr.send()
+        orgXhr.send()
     }
 
-    function updateConfig() {
-        var xhr = new XMLHttpRequest()
-        xhr.open("POST", serverUrl + "/config", true)
-        xhr.setRequestHeader("Content-Type", "application/json")
+    function fetchUsageData(orgId) {
+        var usageXhr = new XMLHttpRequest()
+        usageXhr.open("GET", "https://claude.ai/api/organizations/" + orgId + "/usage", true)
+        usageXhr.setRequestHeader("Cookie", "sessionKey=" + cfg_sessionKey)
+        usageXhr.setRequestHeader("Accept", "application/json")
+        usageXhr.timeout = 15000
 
-        var config = {
-            manual_key: cfg_manualSessionKey,
-            browser: cfg_browserType || "auto"
-        }
-
-        xhr.send(JSON.stringify(config))
-    }
-
-    function forceRefresh() {
-        isLoading = true
-
-        var xhr = new XMLHttpRequest()
-        xhr.open("POST", serverUrl + "/refresh", true)
-        xhr.timeout = 15000
-
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                isLoading = false
-
-                if (xhr.status === 200) {
+        usageXhr.onreadystatechange = function() {
+            if (usageXhr.readyState === XMLHttpRequest.DONE) {
+                if (usageXhr.status === 200) {
                     try {
-                        var result = JSON.parse(xhr.responseText)
-                        usageData = result
-                        lastError = result.error || ""
-                        lastUpdated = new Date()
+                        var data = JSON.parse(usageXhr.responseText)
+                        processUsageData(data)
+                        fetchExtraUsage(orgId)
                     } catch (e) {
-                        lastError = "Failed to parse response"
+                        isLoading = false
+                        lastError = "Failed to parse usage data"
                     }
+                } else {
+                    isLoading = false
+                    lastError = "Failed to fetch usage: " + usageXhr.status
                 }
             }
         }
 
-        xhr.send()
+        usageXhr.onerror = function() {
+            isLoading = false
+            lastError = "Network error"
+        }
+
+        usageXhr.send()
+    }
+
+    function fetchExtraUsage(orgId) {
+        var extraXhr = new XMLHttpRequest()
+        extraXhr.open("GET", "https://claude.ai/api/organizations/" + orgId + "/overage_spend_limit", true)
+        extraXhr.setRequestHeader("Cookie", "sessionKey=" + cfg_sessionKey)
+        extraXhr.setRequestHeader("Accept", "application/json")
+        extraXhr.timeout = 10000
+
+        extraXhr.onreadystatechange = function() {
+            if (extraXhr.readyState === XMLHttpRequest.DONE) {
+                isLoading = false
+                if (extraXhr.status === 200) {
+                    try {
+                        var extraData = JSON.parse(extraXhr.responseText)
+                        if (usageData && extraData.is_enabled) {
+                            usageData.extra_usage = {
+                                used: extraData.used_credits / 100.0,
+                                limit: extraData.monthly_credit_limit / 100.0,
+                                currency: extraData.currency || "USD",
+                                enabled: true
+                            }
+                        }
+                    } catch (e) {}
+                }
+                lastUpdated = new Date()
+            }
+        }
+
+        extraXhr.onerror = function() {
+            isLoading = false
+            lastUpdated = new Date()
+        }
+
+        extraXhr.send()
+    }
+
+    function processUsageData(data) {
+        usageData = {}
+
+        // Session (5-hour window)
+        if (data.five_hour && data.five_hour.utilization !== undefined) {
+            var sessionResets = parseISODate(data.five_hour.resets_at)
+            usageData.session = {
+                used: data.five_hour.utilization,
+                resets_at: data.five_hour.resets_at,
+                resets_in: formatTimeRemaining(sessionResets),
+                resets_date: formatResetDate(sessionResets)
+            }
+        }
+
+        // Weekly (7-day window)
+        if (data.seven_day && data.seven_day.utilization !== undefined) {
+            var weeklyResets = parseISODate(data.seven_day.resets_at)
+            usageData.weekly = {
+                used: data.seven_day.utilization,
+                resets_at: data.seven_day.resets_at,
+                resets_in: formatTimeRemaining(weeklyResets),
+                resets_date: formatResetDate(weeklyResets)
+            }
+        }
+
+        usageData.extra_usage = null
+        lastError = ""
+    }
+
+    function parseISODate(dateStr) {
+        if (!dateStr) return null
+        return new Date(dateStr)
+    }
+
+    function formatTimeRemaining(resetsAt) {
+        if (!resetsAt) return ""
+
+        var now = new Date()
+        var diff = resetsAt - now
+
+        if (diff <= 0) return "Resets soon"
+
+        var totalSeconds = Math.floor(diff / 1000)
+        var hours = Math.floor(totalSeconds / 3600)
+        var minutes = Math.floor((totalSeconds % 3600) / 60)
+        var days = Math.floor(hours / 24)
+
+        if (days > 0) {
+            var remainingHours = hours % 24
+            if (remainingHours > 0) return "Resets in " + days + "d " + remainingHours + "h"
+            return "Resets in " + days + " days"
+        }
+
+        if (hours > 0) return "Resets in " + hours + "h " + minutes + "m"
+
+        return "Resets in " + minutes + "m"
+    }
+
+    function formatResetDate(resetsAt) {
+        if (!resetsAt) return ""
+
+        var now = new Date()
+        var diff = resetsAt - now
+
+        if (diff <= 0) return "Now"
+
+        if (diff < 86400000) { // < 24 hours
+            return resetsAt.toLocaleTimeString(Qt.locale(), "h:mm AP")
+        } else if (diff < 604800000) { // < 7 days
+            return resetsAt.toLocaleDateString(Qt.locale(), "MMM d, h:mm AP")
+        } else {
+            return resetsAt.toLocaleDateString(Qt.locale(), "MMM d")
+        }
     }
 
     function getUsageColor(percentage) {
@@ -182,11 +258,11 @@ PlasmoidItem {
     }
 
     function getTrayText() {
+        if (!cfg_sessionKey) return "?"
+
         if (isLoading) return "..."
 
-        if (!serverRunning) return "!"
-
-        if (lastError && !usageData) return "!"
+        if (lastError) return "!"
 
         if (!usageData) return "?"
 
@@ -202,7 +278,11 @@ PlasmoidItem {
     }
 
     function getTrayColor() {
-        if (!serverRunning || (lastError && !usageData)) {
+        if (!cfg_sessionKey) {
+            return Kirigami.Theme.disabledTextColor
+        }
+
+        if (lastError && !usageData) {
             return Kirigami.Theme.negativeTextColor
         }
 
@@ -230,9 +310,13 @@ PlasmoidItem {
         return Math.floor(diff / 86400) + "d ago"
     }
 
-    // Watch for config changes
-    onCfg_manualSessionKeyChanged: updateConfig()
-    onCfg_browserTypeChanged: updateConfig()
+    // Watch for session key changes
+    onCfg_sessionKeyChanged: {
+        usageData = null
+        if (cfg_sessionKey) {
+            fetchUsage()
+        }
+    }
 
     // ============================================================
     // ToolTip
@@ -240,7 +324,7 @@ PlasmoidItem {
 
     Plasmoid.toolTipMainText: "Claude Code Usage"
     Plasmoid.toolTipSubText: {
-        if (!serverRunning) return "Server not running"
+        if (!cfg_sessionKey) return "Configure session key"
 
         if (lastError && !usageData) return lastError
 
@@ -272,7 +356,6 @@ PlasmoidItem {
             font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
         }
 
-        // Loading animation
         PlasmaComponents.BusyIndicator {
             anchors.centerIn: parent
             running: isLoading
@@ -290,7 +373,7 @@ PlasmoidItem {
         id: fullRep
 
         implicitWidth: PlasmaCore.Units.gridUnit * 18
-        implicitHeight: PlasmaCore.Units.gridUnit * 16
+        implicitHeight: PlasmaCore.Units.gridUnit * 14
         spacing: PlasmaCore.Units.smallSpacing
 
         // Header
@@ -307,28 +390,58 @@ PlasmoidItem {
 
             PlasmaComponents.ToolButton {
                 icon.name: "view-refresh"
-                text: "Refresh"
                 display: PlasmaComponents.AbstractButton.IconOnly
-                onClicked: forceRefresh()
-                enabled: !isLoading && serverRunning
+                onClicked: fetchUsage()
+                enabled: !isLoading && cfg_sessionKey !== ""
                 PlasmaComponents.ToolTip.text: "Refresh"
+                PlasmaComponents.ToolTip.visible: hovered
+            }
+
+            PlasmaComponents.ToolButton {
+                icon.name: "configure"
+                display: PlasmaComponents.AbstractButton.IconOnly
+                onClicked: plasmoid.internalAction("configure").trigger()
+                PlasmaComponents.ToolTip.text: "Configure"
                 PlasmaComponents.ToolTip.visible: hovered
             }
         }
 
-        // Server status
-        PlasmaComponents.Label {
-            visible: !serverRunning
-            text: "⚠ Server not running. Start with:\npython3 ~/.local/share/plasma/plasmoids/com.github.claude-usage/contents/code/claude-usage.py --server &"
-            color: Kirigami.Theme.negativeTextColor
-            wrapMode: Text.WordWrap
+        // No session key configured
+        ColumnLayout {
+            visible: !cfg_sessionKey
             Layout.fillWidth: true
-            font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+            Layout.fillHeight: true
+            spacing: PlasmaCore.Units.smallSpacing
+
+            Kirigami.Icon {
+                source: "dialog-information"
+                implicitWidth: PlasmaCore.Units.gridUnit * 3
+                implicitHeight: PlasmaCore.Units.gridUnit * 3
+                Layout.alignment: Qt.AlignHCenter
+                Layout.topMargin: PlasmaCore.Units.gridUnit
+            }
+
+            PlasmaComponents.Label {
+                text: "Configure your session key"
+                font.bold: true
+                Layout.alignment: Qt.AlignHCenter
+            }
+
+            PlasmaComponents.Label {
+                text: "1. Go to claude.ai and login\n2. Open browser DevTools (F12)\n3. Go to Application → Cookies\n4. Copy the 'sessionKey' value\n5. Click configure button above"
+                font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+                color: Kirigami.Theme.disabledTextColor
+                Layout.alignment: Qt.AlignHCenter
+                Layout.leftMargin: PlasmaCore.Units.gridUnit
+                Layout.rightMargin: PlasmaCore.Units.gridUnit
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.WordWrap
+            }
         }
 
         // Error state
         PlasmaComponents.Label {
-            visible: serverRunning && lastError !== "" && !usageData
+            visible: cfg_sessionKey && lastError !== "" && !usageData
             text: lastError
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
@@ -355,7 +468,6 @@ PlasmoidItem {
                 spacing: PlasmaCore.Units.smallSpacing
 
                 Kirigami.ProgressBar {
-                    id: sessionProgress
                     Layout.fillWidth: true
                     from: 0
                     to: 100
@@ -447,7 +559,7 @@ PlasmoidItem {
                     var limit = usageData.extra_usage.limit.toFixed(2)
                     var currency = usageData.extra_usage.currency || "USD"
 
-                    return currency + "$" + used + " / $" + limit + " used"
+                    return "$" + used + " / $" + limit + " used"
                 }
                 font.bold: true
             }
@@ -458,10 +570,10 @@ PlasmoidItem {
             Layout.fillHeight: true
         }
 
-        // Footer with last updated time
+        // Footer
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: "Updated: " + formatTimeSince(lastUpdated)
+            text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated) : ""
             font.pixelSize: PlasmaCore.Units.gridUnit * 0.7
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignRight
@@ -473,6 +585,8 @@ PlasmoidItem {
     // ============================================================
 
     Component.onCompleted: {
-        checkServer()
+        if (cfg_sessionKey) {
+            fetchUsage()
+        }
     }
 }

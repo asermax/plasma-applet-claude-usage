@@ -29,52 +29,19 @@ echo "Copying files..."
 cp -r "$SCRIPT_DIR/contents" "$INSTALL_PATH/"
 cp "$SCRIPT_DIR/metadata.json" "$INSTALL_PATH/"
 
-# Make Python script executable
-chmod +x "$INSTALL_PATH/contents/code/claude-usage.py"
-
 echo ""
 echo "✓ Installed to: $INSTALL_PATH"
 echo ""
 
-# Create systemd user service for auto-start
-SERVICE_DIR="$HOME/.config/systemd/user"
-SERVICE_FILE="$SERVICE_DIR/claude-usage.service"
-
-echo "Creating systemd service..."
-mkdir -p "$SERVICE_DIR"
-
-cat > "$SERVICE_FILE" << EOF
-[Unit]
-Description=Claude Code Usage Backend
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=$INSTALL_PATH/contents/code/claude-usage.py --server
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-EOF
-
-echo "✓ Service file created: $SERVICE_FILE"
+# Reload Plasma (optional)
+read -p "Reload Plasma now? [y/N] " -n 1 -r
 echo ""
 
-# Ask if user wants to enable the service
-read -p "Enable and start the backend service now? [Y/n] " -n 1 -r
-echo ""
-
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    systemctl --user daemon-reload
-    systemctl --user enable --now claude-usage.service
-    echo "✓ Service started"
-else
-    echo "To enable later, run:"
-    echo "  systemctl --user enable --now claude-usage.service"
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo "Reloading Plasma..."
+    kquitapp6 plasmashell && kstart5 plasmashell &
 fi
 
-echo ""
 echo "=========================================="
 echo " Installation Complete!"
 echo "=========================================="
@@ -85,6 +52,10 @@ echo "  2. Select 'Add Widgets'"
 echo "  3. Search for 'Claude Code Usage'"
 echo "  4. Drag it to your panel"
 echo ""
-echo "Alternatively, restart Plasma:"
-echo "  kquitapp6 plasmashell && kstart5 plasmashell &"
+echo "Then configure your session key:"
+echo "  1. Right-click widget → Configure"
+echo "  2. Go to claude.ai in your browser and login"
+echo "  3. Open DevTools (F12) → Application → Cookies"
+echo "  4. Copy the 'sessionKey' value"
+echo "  5. Paste it in the configuration"
 echo ""
