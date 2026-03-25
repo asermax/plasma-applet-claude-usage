@@ -39,7 +39,7 @@ echo ""
 
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo "Reloading Plasma..."
-    kquitapp6 plasmashell && kstart5 plasmashell &
+    kquitapp6 plasmashell && kstart plasmashell &
 fi
 
 echo "=========================================="

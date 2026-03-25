@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
-import org.kde.plasma.core as PlasmaCore
 import org.kde.kirigami as Kirigami
 
 PlasmoidItem {
@@ -158,6 +157,8 @@ PlasmoidItem {
                                 currency: extraData.currency || "USD",
                                 enabled: true
                             }
+                            // Force QML binding re-evaluation after in-place mutation
+                            usageData = usageData
                         }
                     } catch (e) {}
                 }
@@ -307,6 +308,30 @@ PlasmoidItem {
         return Math.floor(diff / 86400) + "d ago"
     }
 
+    // ============================================================
+    // Tooltip
+    // ============================================================
+
+    toolTipMainText: "Claude Code Usage"
+    toolTipSubText: {
+        if (!cfg_sessionKey) return "Session key not configured"
+        if (lastError) return lastError
+        if (!usageData) return "Loading..."
+
+        var text = ""
+
+        if (usageData.session) {
+            text += "Session: " + Math.round(usageData.session.used) + "% - " + usageData.session.resets_in
+        }
+
+        if (usageData.weekly) {
+            if (text) text += "\n"
+            text += "Weekly: " + Math.round(usageData.weekly.used) + "% - " + usageData.weekly.resets_in
+        }
+
+        return text
+    }
+
     // Watch for session key changes
     onCfg_sessionKeyChanged: {
         usageData = null
@@ -316,18 +341,14 @@ PlasmoidItem {
     }
 
     // ============================================================
-    // ToolTip (using PlasmaCore.ToolTipArea in compactRepresentation)
-    // ============================================================
-
-    // ============================================================
     // Compact Representation (System Tray)
     // ============================================================
 
     compactRepresentation: PlasmaComponents.AbstractButton {
         id: compactRep
 
-        implicitWidth: PlasmaCore.Units.gridUnit * 2.5
-        implicitHeight: PlasmaCore.Units.gridUnit
+        implicitWidth: Kirigami.Units.gridUnit * 2.5
+        implicitHeight: Kirigami.Units.gridUnit
 
         onClicked: root.expanded = !root.expanded
 
@@ -336,15 +357,15 @@ PlasmoidItem {
             text: getTrayText()
             color: getTrayColor()
             font.bold: true
-            font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+            font.pixelSize: Kirigami.Units.gridUnit * 0.8
         }
 
         PlasmaComponents.BusyIndicator {
             anchors.centerIn: parent
             running: isLoading
             visible: isLoading
-            implicitWidth: PlasmaCore.Units.gridUnit
-            implicitHeight: PlasmaCore.Units.gridUnit
+            implicitWidth: Kirigami.Units.gridUnit
+            implicitHeight: Kirigami.Units.gridUnit
         }
     }
 
@@ -355,19 +376,19 @@ PlasmoidItem {
     fullRepresentation: ColumnLayout {
         id: fullRep
 
-        implicitWidth: PlasmaCore.Units.gridUnit * 18
-        implicitHeight: PlasmaCore.Units.gridUnit * 14
-        spacing: PlasmaCore.Units.smallSpacing
+        implicitWidth: Kirigami.Units.gridUnit * 18
+        implicitHeight: Kirigami.Units.gridUnit * 14
+        spacing: Kirigami.Units.smallSpacing
 
         // Header
         RowLayout {
             Layout.fillWidth: true
-            Layout.bottomMargin: PlasmaCore.Units.smallSpacing
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Claude Code Usage"
                 font.bold: true
-                font.pixelSize: PlasmaCore.Units.gridUnit * 1.1
+                font.pixelSize: Kirigami.Units.gridUnit * 1.1
                 Layout.fillWidth: true
             }
 
@@ -394,14 +415,14 @@ PlasmoidItem {
             visible: !cfg_sessionKey
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: PlasmaCore.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
 
             Kirigami.Icon {
                 source: "dialog-information"
-                implicitWidth: PlasmaCore.Units.gridUnit * 3
-                implicitHeight: PlasmaCore.Units.gridUnit * 3
+                implicitWidth: Kirigami.Units.gridUnit * 3
+                implicitHeight: Kirigami.Units.gridUnit * 3
                 Layout.alignment: Qt.AlignHCenter
-                Layout.topMargin: PlasmaCore.Units.gridUnit
+                Layout.topMargin: Kirigami.Units.gridUnit
             }
 
             PlasmaComponents.Label {
@@ -412,11 +433,11 @@ PlasmoidItem {
 
             PlasmaComponents.Label {
                 text: "1. Go to claude.ai and login\n2. Open DevTools (F12)\n3. Application → Cookies\n4. Copy 'sessionKey' value\n5. Click configure button above"
-                font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+                font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
                 Layout.alignment: Qt.AlignHCenter
-                Layout.leftMargin: PlasmaCore.Units.gridUnit
-                Layout.rightMargin: PlasmaCore.Units.gridUnit
+                Layout.leftMargin: Kirigami.Units.gridUnit
+                Layout.rightMargin: Kirigami.Units.gridUnit
                 horizontalAlignment: Text.AlignHCenter
                 wrapMode: Text.WordWrap
             }
@@ -430,31 +451,31 @@ PlasmoidItem {
             wrapMode: Text.WordWrap
             Layout.fillWidth: true
             horizontalAlignment: Text.AlignHCenter
-            Layout.topMargin: PlasmaCore.Units.largeSpacing
-            Layout.bottomMargin: PlasmaCore.Units.largeSpacing
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            Layout.bottomMargin: Kirigami.Units.largeSpacing
         }
 
         // Session usage
         ColumnLayout {
             visible: usageData && usageData.session
             Layout.fillWidth: true
-            spacing: PlasmaCore.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Session (5h window)"
-                font.pixelSize: PlasmaCore.Units.gridUnit * 0.9
+                font.pixelSize: Kirigami.Units.gridUnit * 0.9
                 color: Kirigami.Theme.disabledTextColor
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: PlasmaCore.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 // Custom Progress Bar
                 Rectangle {
                     id: sessionProgress
                     Layout.fillWidth: true
-                    implicitHeight: PlasmaCore.Units.gridUnit * 0.4
+                    implicitHeight: Kirigami.Units.gridUnit * 0.4
                     radius: height / 2
                     color: Kirigami.Theme.alternateBackgroundColor
 
@@ -485,14 +506,14 @@ PlasmoidItem {
                     color: usageData && usageData.session
                         ? getUsageColor(usageData.session.used)
                         : Kirigami.Theme.textColor
-                    Layout.minimumWidth: PlasmaCore.Units.gridUnit * 2
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 2
                     horizontalAlignment: Text.AlignRight
                 }
             }
 
             PlasmaComponents.Label {
                 text: usageData && usageData.session ? usageData.session.resets_in : ""
-                font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+                font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
             }
         }
@@ -501,23 +522,23 @@ PlasmoidItem {
         ColumnLayout {
             visible: usageData && usageData.weekly
             Layout.fillWidth: true
-            spacing: PlasmaCore.Units.smallSpacing
-            Layout.topMargin: PlasmaCore.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+            Layout.topMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Weekly (7 day window)"
-                font.pixelSize: PlasmaCore.Units.gridUnit * 0.9
+                font.pixelSize: Kirigami.Units.gridUnit * 0.9
                 color: Kirigami.Theme.disabledTextColor
             }
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: PlasmaCore.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
 
                 // Custom Progress Bar
                 Rectangle {
                     Layout.fillWidth: true
-                    implicitHeight: PlasmaCore.Units.gridUnit * 0.4
+                    implicitHeight: Kirigami.Units.gridUnit * 0.4
                     radius: height / 2
                     color: Kirigami.Theme.alternateBackgroundColor
 
@@ -547,14 +568,14 @@ PlasmoidItem {
                     color: usageData && usageData.weekly
                         ? getUsageColor(usageData.weekly.used)
                         : Kirigami.Theme.textColor
-                    Layout.minimumWidth: PlasmaCore.Units.gridUnit * 2
+                    Layout.minimumWidth: Kirigami.Units.gridUnit * 2
                     horizontalAlignment: Text.AlignRight
                 }
             }
 
             PlasmaComponents.Label {
                 text: usageData && usageData.weekly ? usageData.weekly.resets_date : ""
-                font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+                font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
             }
         }
@@ -563,12 +584,12 @@ PlasmoidItem {
         ColumnLayout {
             visible: usageData && usageData.extra_usage && usageData.extra_usage.enabled
             Layout.fillWidth: true
-            spacing: PlasmaCore.Units.smallSpacing
-            Layout.topMargin: PlasmaCore.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+            Layout.topMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Extra Usage (Monthly)"
-                font.pixelSize: PlasmaCore.Units.gridUnit * 0.9
+                font.pixelSize: Kirigami.Units.gridUnit * 0.9
                 color: Kirigami.Theme.disabledTextColor
             }
 
@@ -594,7 +615,7 @@ PlasmoidItem {
         PlasmaComponents.Label {
             Layout.fillWidth: true
             text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated) : ""
-            font.pixelSize: PlasmaCore.Units.gridUnit * 0.7
+            font.pixelSize: Kirigami.Units.gridUnit * 0.7
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignRight
         }
