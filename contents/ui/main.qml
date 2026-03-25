@@ -309,8 +309,8 @@ PlasmoidItem {
 
         PlasmaComponents.BusyIndicator {
             anchors.centerIn: parent
-            running: isLoading
-            visible: isLoading
+            running: isLoading && !usageData
+            visible: isLoading && !usageData
             implicitWidth: Kirigami.Units.gridUnit
             implicitHeight: Kirigami.Units.gridUnit
         }
@@ -347,7 +347,7 @@ PlasmoidItem {
             anchors.centerIn: parent
             width: ringSize
             height: ringSize
-            visible: !isLoading
+            visible: !isLoading || usageData
 
             // Background track
             ShapePath {
