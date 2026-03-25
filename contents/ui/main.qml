@@ -230,7 +230,7 @@ PlasmoidItem {
         var days = Math.floor(hours / 24)
 
         if (days > 0) {
-            return "Resets on " + resetsAt.toLocaleDateString(Qt.locale(), "MMM d")
+            return "Resets on " + resetsAt.toLocaleString(Qt.locale(), "MMM d") + " at " + resetsAt.toLocaleTimeString(Qt.locale(), "HH:mm")
         }
 
         if (hours > 0) return "Resets in " + hours + "h " + minutes + "m"
