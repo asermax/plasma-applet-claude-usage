@@ -36,10 +36,6 @@ Kirigami.FormLayout {
         Layout.topMargin: Kirigami.Units.smallSpacing
     }
 
-    Item {
-        Layout.fillHeight: true
-    }
-
     Kirigami.Separator {
         Kirigami.FormData.isSection: true
         Kirigami.FormData.label: i18n("Display Options")
