@@ -2,50 +2,49 @@
 """
 Claude Code Usage Backend for KDE Plasma Applet.
 
-Fetches Claude.ai usage statistics using browser session cookies
-and outputs JSON for QML consumption.
+This script provides Claude.ai usage statistics via a local HTTP server
+or one-shot JSON output.
 
 Usage:
-    python3 claude-usage.py [--manual-key SESSION_KEY] [--browser chrome|firefox|auto]
+    python3 claude-usage.py --server     # Run as HTTP server (port 17432)
+    python3 claude-usage.py --once       # Run once and output JSON
 
-Output JSON format:
-    {
-        "success": true,
-        "session": {"used": 45.5, "resets_at": "2025-03-25T10:30:00Z", "resets_in": "2h 30m"},
-        "weekly": {"used": 23.2, "resets_at": "2025-03-28T15:00:00Z", "resets_in": "3 days"},
-        "extra_usage": {"used": 12.34, "limit": 50.0, "currency": "USD", "enabled": true},
-        "error": null
-    }
+The HTTP server provides these endpoints:
+    GET /usage           - Get current usage data
+    POST /config         - Update configuration (manual_key, browser)
+    POST /refresh        - Force refresh
 """
 
 import argparse
 import json
 import os
+import signal
 import sqlite3
 import sys
+import threading
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Optional
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Fetch Claude.ai usage statistics")
-    parser.add_argument(
-        "--manual-key",
-        type=str,
-        default=None,
-        help="Manual sessionKey cookie value (overrides browser extraction)",
-    )
-    parser.add_argument(
-        "--browser",
-        type=str,
-        choices=["chrome", "firefox", "auto"],
-        default="auto",
-        help="Browser to extract cookies from (default: auto)",
-    )
-    return parser.parse_args()
+# ============================================================
+# Configuration
+# ============================================================
+
+DEFAULT_PORT = 17432
+SERVER_HOST = "127.0.0.1"
+
+# Global config (mutable)
+_config = {
+    "manual_key": None,
+    "browser": "auto",
+    "cache": None,
+    "cache_time": None,
+    "cache_ttl": 60,  # seconds
+}
 
 
 # ============================================================
@@ -55,20 +54,14 @@ def parse_args() -> argparse.Namespace:
 
 def get_chrome_cookies_path() -> Optional[Path]:
     """Get the path to Chrome's Cookies database on Linux."""
-    chrome_path = Path.home() / ".config" / "google-chrome" / "Default" / "Cookies"
-    if chrome_path.exists():
-        return chrome_path
-
-    # Try Chrome Beta
-    beta_path = Path.home() / ".config" / "google-chrome-beta" / "Default" / "Cookies"
-    if beta_path.exists():
-        return beta_path
-
-    # Try Chromium
-    chromium_path = Path.home() / ".config" / "chromium" / "Default" / "Cookies"
-    if chromium_path.exists():
-        return chromium_path
-
+    paths = [
+        Path.home() / ".config" / "google-chrome" / "Default" / "Cookies",
+        Path.home() / ".config" / "google-chrome-beta" / "Default" / "Cookies",
+        Path.home() / ".config" / "chromium" / "Default" / "Cookies",
+    ]
+    for path in paths:
+        if path.exists():
+            return path
     return None
 
 
@@ -78,12 +71,6 @@ def get_firefox_cookies_path() -> Optional[Path]:
     if not firefox_path.exists():
         return None
 
-    # Find the active profile (the one with most recent access)
-    profiles_ini = firefox_path / "profiles.ini"
-    if not profiles_ini.exists():
-        return None
-
-    # Look for profiles with cookies.sqlite
     for profile_dir in firefox_path.iterdir():
         if profile_dir.is_dir():
             cookies_path = profile_dir / "cookies.sqlite"
@@ -96,7 +83,6 @@ def get_firefox_cookies_path() -> Optional[Path]:
 def extract_sessionkey_from_chrome(cookies_path: Path) -> Optional[str]:
     """Extract sessionKey cookie from Chrome's SQLite database."""
     try:
-        # Chrome locks the database, so we need to copy it first
         import shutil
         import tempfile
 
@@ -120,10 +106,8 @@ def extract_sessionkey_from_chrome(cookies_path: Path) -> Optional[str]:
             tmp_path.unlink(missing_ok=True)
 
         if row and row[0]:
-            # On Linux, Chrome cookies are NOT encrypted (they're stored in plaintext)
             encrypted_value = row[0]
             if isinstance(encrypted_value, bytes):
-                # Try to decode as UTF-8 (plaintext on Linux)
                 try:
                     return encrypted_value.decode("utf-8")
                 except UnicodeDecodeError:
@@ -153,31 +137,26 @@ def extract_sessionkey_from_firefox(cookies_path: Path) -> Optional[str]:
         return None
 
 
-def get_session_key(manual_key: Optional[str], browser: str) -> tuple[Optional[str], str]:
-    """
-    Get the sessionKey cookie value.
-
-    Returns:
-        Tuple of (session_key, source_description)
-    """
+def get_session_key(manual_key: Optional[str] = None, browser: str = "auto") -> Optional[str]:
+    """Get the sessionKey cookie value."""
     if manual_key:
-        return manual_key, "manual"
+        return manual_key
 
     if browser in ("chrome", "auto"):
         chrome_path = get_chrome_cookies_path()
         if chrome_path:
             key = extract_sessionkey_from_chrome(chrome_path)
             if key:
-                return key, "chrome"
+                return key
 
     if browser in ("firefox", "auto"):
         firefox_path = get_firefox_cookies_path()
         if firefox_path:
             key = extract_sessionkey_from_firefox(firefox_path)
             if key:
-                return key, "firefox"
+                return key
 
-    return None, ""
+    return None
 
 
 # ============================================================
@@ -206,28 +185,18 @@ def make_request(url: str, session_key: str) -> tuple[int, Optional[dict]]:
 
 
 def get_organizations(session_key: str) -> tuple[Optional[str], Optional[str]]:
-    """
-    Get the first organization ID with chat capability.
-
-    Returns:
-        Tuple of (org_id, org_name) or (None, None) on error
-    """
+    """Get the first organization ID with chat capability."""
     url = "https://claude.ai/api/organizations"
     status, data = make_request(url, session_key)
 
-    if status != 200 or not data:
+    if status != 200 or not data or not isinstance(data, list):
         return None, None
 
-    if not isinstance(data, list):
-        return None, None
-
-    # Find first org with chat capability
     for org in data:
         capabilities = org.get("capabilities", [])
         if "chat" in capabilities:
             return org.get("uuid"), org.get("name")
 
-    # Fallback to first org if no chat capability found
     if data:
         return data[0].get("uuid"), data[0].get("name")
 
@@ -238,22 +207,14 @@ def get_usage_data(session_key: str, org_id: str) -> Optional[dict]:
     """Get usage data for an organization."""
     url = f"https://claude.ai/api/organizations/{org_id}/usage"
     status, data = make_request(url, session_key)
-
-    if status != 200 or not data:
-        return None
-
-    return data
+    return data if status == 200 else None
 
 
 def get_extra_usage(session_key: str, org_id: str) -> Optional[dict]:
     """Get extra usage (overage) data for an organization."""
     url = f"https://claude.ai/api/organizations/{org_id}/overage_spend_limit"
     status, data = make_request(url, session_key)
-
-    if status != 200 or not data:
-        return None
-
-    return data
+    return data if status == 200 else None
 
 
 # ============================================================
@@ -266,7 +227,6 @@ def parse_iso8601(date_str: Optional[str]) -> Optional[datetime]:
     if not date_str:
         return None
 
-    # Try with fractional seconds
     for fmt in ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"]:
         try:
             return datetime.strptime(date_str, fmt).replace(tzinfo=timezone.utc)
@@ -315,7 +275,6 @@ def format_reset_date(resets_at: Optional[datetime]) -> str:
     if delta.total_seconds() <= 0:
         return "Now"
 
-    # Convert to local time for display
     local_resets = resets_at.astimezone()
 
     if delta.days == 0:
@@ -327,7 +286,7 @@ def format_reset_date(resets_at: Optional[datetime]) -> str:
 
 
 # ============================================================
-# Main Output
+# Output Formatting
 # ============================================================
 
 
@@ -343,10 +302,10 @@ def format_output(
         "weekly": None,
         "extra_usage": None,
         "error": error,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
     if usage_data:
-        # Session (5-hour window)
         five_hour = usage_data.get("five_hour", {})
         session_util = five_hour.get("utilization")
         if session_util is not None:
@@ -358,7 +317,6 @@ def format_output(
                 "resets_date": format_reset_date(session_resets),
             }
 
-        # Weekly (7-day window)
         seven_day = usage_data.get("seven_day", {})
         weekly_util = seven_day.get("utilization")
         if weekly_util is not None:
@@ -375,7 +333,6 @@ def format_output(
         monthly_limit = extra_data.get("monthly_credit_limit", 0)
         currency = extra_data.get("currency", "USD")
 
-        # Credits are in cents, convert to dollars
         result["extra_usage"] = {
             "used": used_credits / 100.0,
             "limit": monthly_limit / 100.0,
@@ -386,39 +343,165 @@ def format_output(
     return result
 
 
-def main() -> None:
-    args = parse_args()
-
-    # Get session key
-    session_key, source = get_session_key(args.manual_key, args.browser)
+def fetch_usage(manual_key: Optional[str] = None, browser: str = "auto") -> dict[str, Any]:
+    """Fetch usage data and return formatted result."""
+    session_key = get_session_key(manual_key, browser)
 
     if not session_key:
-        output = format_output(None, None, "Login to claude.ai in your browser first")
-        print(json.dumps(output))
-        sys.exit(0)
+        return format_output(None, None, "Login to claude.ai in your browser first")
 
-    # Get organization
     org_id, org_name = get_organizations(session_key)
 
     if not org_id:
-        output = format_output(None, None, "No Claude organization found")
-        print(json.dumps(output))
-        sys.exit(0)
+        return format_output(None, None, "No Claude organization found")
 
-    # Get usage data
     usage_data = get_usage_data(session_key, org_id)
 
     if not usage_data:
-        output = format_output(None, None, "Failed to fetch usage data")
-        print(json.dumps(output))
-        sys.exit(0)
+        return format_output(None, None, "Failed to fetch usage data")
 
-    # Get extra usage (optional, don't fail on error)
     extra_data = get_extra_usage(session_key, org_id)
 
-    # Output result
-    output = format_output(usage_data, extra_data)
-    print(json.dumps(output))
+    return format_output(usage_data, extra_data)
+
+
+# ============================================================
+# HTTP Server
+# ============================================================
+
+
+class UsageHTTPHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for usage data."""
+
+    def log_message(self, format, *args):
+        """Suppress default logging."""
+        pass
+
+    def _send_json(self, data: dict, status: int = 200):
+        """Send JSON response."""
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode("utf-8"))
+
+    def do_GET(self):
+        """Handle GET requests."""
+        if self.path == "/usage" or self.path == "/":
+            # Check cache
+            if _config["cache"] and _config["cache_time"]:
+                age = (datetime.now(timezone.utc) - _config["cache_time"]).total_seconds()
+                if age < _config["cache_ttl"]:
+                    self._send_json(_config["cache"])
+                    return
+
+            # Fetch fresh data
+            result = fetch_usage(_config["manual_key"], _config["browser"])
+            _config["cache"] = result
+            _config["cache_time"] = datetime.now(timezone.utc)
+            self._send_json(result)
+        elif self.path == "/health":
+            self._send_json({"status": "ok"})
+        else:
+            self._send_json({"error": "Not found"}, 404)
+
+    def do_POST(self):
+        """Handle POST requests."""
+        content_length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+
+        if self.path == "/config":
+            try:
+                data = json.loads(body)
+                if "manual_key" in data:
+                    _config["manual_key"] = data["manual_key"] or None
+                if "browser" in data:
+                    _config["browser"] = data["browser"]
+                # Invalidate cache on config change
+                _config["cache"] = None
+                self._send_json({"status": "ok"})
+            except json.JSONDecodeError:
+                self._send_json({"error": "Invalid JSON"}, 400)
+        elif self.path == "/refresh":
+            _config["cache"] = None
+            result = fetch_usage(_config["manual_key"], _config["browser"])
+            _config["cache"] = result
+            _config["cache_time"] = datetime.now(timezone.utc)
+            self._send_json(result)
+        else:
+            self._send_json({"error": "Not found"}, 404)
+
+
+def run_server(port: int = DEFAULT_PORT):
+    """Run the HTTP server."""
+    server = HTTPServer((SERVER_HOST, port), UsageHTTPHandler)
+    print(f"Claude Usage server running on http://{SERVER_HOST}:{port}")
+    print("Press Ctrl+C to stop")
+
+    # Handle SIGTERM gracefully
+    def handle_sigterm(signum, frame):
+        print("\nShutting down...")
+        server.shutdown()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+        server.shutdown()
+
+
+def run_once(manual_key: Optional[str] = None, browser: str = "auto"):
+    """Run once and output JSON."""
+    result = fetch_usage(manual_key, browser)
+    print(json.dumps(result))
+
+
+# ============================================================
+# Main
+# ============================================================
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Claude Code Usage Backend")
+    parser.add_argument(
+        "--server",
+        action="store_true",
+        help="Run as HTTP server",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run once and output JSON",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port for HTTP server (default: {DEFAULT_PORT})",
+    )
+    parser.add_argument(
+        "--manual-key",
+        type=str,
+        default=None,
+        help="Manual sessionKey cookie value",
+    )
+    parser.add_argument(
+        "--browser",
+        type=str,
+        choices=["chrome", "firefox", "auto"],
+        default="auto",
+        help="Browser to extract cookies from",
+    )
+
+    args = parser.parse_args()
+
+    if args.server:
+        run_server(args.port)
+    else:
+        run_once(args.manual_key, args.browser)
 
 
 if __name__ == "__main__":

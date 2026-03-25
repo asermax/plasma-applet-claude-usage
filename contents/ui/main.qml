@@ -16,6 +16,7 @@ PlasmoidItem {
     property string lastError: ""
     property bool isLoading: false
     property var lastUpdated: null
+    property bool serverRunning: false
 
     // Configuration properties
     property int cfg_refreshInterval: plasmoid.configuration.refreshInterval
@@ -23,40 +24,10 @@ PlasmoidItem {
     property int cfg_warningThreshold: plasmoid.configuration.warningThreshold
     property int cfg_criticalThreshold: plasmoid.configuration.criticalThreshold
     property string cfg_manualSessionKey: plasmoid.configuration.manualSessionKey
+    property string cfg_browserType: plasmoid.configuration.browserType
 
-    // ============================================================
-    // Data Source for executing Python script
-    // ============================================================
-
-    PlasmaCore.DataSource {
-        id: executableSource
-        engine: "executable"
-
-        onNewData: function(sourceName, data) {
-            isLoading = false
-
-            if (data["exit code"] !== 0) {
-                lastError = data.stderr || "Script execution failed"
-                usageData = null
-                return
-            }
-
-            try {
-                var result = JSON.parse(data.stdout)
-                if (result.success) {
-                    usageData = result
-                    lastError = ""
-                    lastUpdated = new Date()
-                } else {
-                    lastError = result.error || "Unknown error"
-                    usageData = null
-                }
-            } catch (e) {
-                lastError = "Failed to parse response"
-                usageData = null
-            }
-        }
-    }
+    // Server URL
+    readonly property string serverUrl: "http://127.0.0.1:17432"
 
     // ============================================================
     // Timer for periodic refresh
@@ -70,26 +41,135 @@ PlasmoidItem {
         onTriggered: fetchUsage()
     }
 
+    // Timer to start server if not running
+    Timer {
+        id: serverCheckTimer
+        interval: 5000
+        running: true
+        repeat: true
+        onTriggered: checkServer()
+    }
+
     // ============================================================
     // Functions
     // ============================================================
+
+    function checkServer() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", serverUrl + "/health", true)
+        xhr.timeout = 2000
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                var wasRunning = serverRunning
+                serverRunning = xhr.status === 200
+
+                if (!serverRunning && !wasRunning) {
+                    // Server not running, try to start it
+                    startServer()
+                }
+            }
+        }
+        xhr.onerror = function() {
+            serverRunning = false
+        }
+        xhr.send()
+    }
+
+    function startServer() {
+        // The server needs to be started externally or via systemd
+        // For now, we'll show an error if it's not running
+        if (!serverRunning) {
+            lastError = "Server not running. Start with: python3 " + getScriptPath() + " --server &"
+        }
+    }
+
+    function getScriptPath() {
+        return Qt.resolvedUrl("../code/claude-usage.py").toString().replace("file://", "")
+    }
 
     function fetchUsage() {
         if (isLoading) return
 
         isLoading = true
-        lastError = ""
 
-        var scriptPath = Qt.resolvedUrl("../code/claude-usage.py")
-        var cmd = "python3 " + scriptPath
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", serverUrl + "/usage", true)
+        xhr.timeout = 15000
 
-        if (cfg_manualSessionKey && cfg_manualSessionKey.length > 0) {
-            cmd += " --manual-key '" + cfg_manualSessionKey + "'"
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                isLoading = false
+
+                if (xhr.status === 200) {
+                    try {
+                        var result = JSON.parse(xhr.responseText)
+                        usageData = result
+                        lastError = result.error || ""
+                        lastUpdated = new Date()
+                        serverRunning = true
+                    } catch (e) {
+                        lastError = "Failed to parse response"
+                        usageData = null
+                    }
+                } else {
+                    lastError = "Server error: " + xhr.status
+                    serverRunning = false
+                }
+            }
         }
 
-        cmd += " --browser auto"
+        xhr.onerror = function() {
+            isLoading = false
+            lastError = "Connection failed"
+            serverRunning = false
+        }
 
-        executableSource.connectSource(cmd)
+        xhr.ontimeout = function() {
+            isLoading = false
+            lastError = "Request timed out"
+        }
+
+        xhr.send()
+    }
+
+    function updateConfig() {
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", serverUrl + "/config", true)
+        xhr.setRequestHeader("Content-Type", "application/json")
+
+        var config = {
+            manual_key: cfg_manualSessionKey,
+            browser: cfg_browserType || "auto"
+        }
+
+        xhr.send(JSON.stringify(config))
+    }
+
+    function forceRefresh() {
+        isLoading = true
+
+        var xhr = new XMLHttpRequest()
+        xhr.open("POST", serverUrl + "/refresh", true)
+        xhr.timeout = 15000
+
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.DONE) {
+                isLoading = false
+
+                if (xhr.status === 200) {
+                    try {
+                        var result = JSON.parse(xhr.responseText)
+                        usageData = result
+                        lastError = result.error || ""
+                        lastUpdated = new Date()
+                    } catch (e) {
+                        lastError = "Failed to parse response"
+                    }
+                }
+            }
+        }
+
+        xhr.send()
     }
 
     function getUsageColor(percentage) {
@@ -104,7 +184,9 @@ PlasmoidItem {
     function getTrayText() {
         if (isLoading) return "..."
 
-        if (lastError) return "!"
+        if (!serverRunning) return "!"
+
+        if (lastError && !usageData) return "!"
 
         if (!usageData) return "?"
 
@@ -120,7 +202,11 @@ PlasmoidItem {
     }
 
     function getTrayColor() {
-        if (lastError || !usageData) {
+        if (!serverRunning || (lastError && !usageData)) {
+            return Kirigami.Theme.negativeTextColor
+        }
+
+        if (!usageData) {
             return Kirigami.Theme.textColor
         }
 
@@ -144,13 +230,20 @@ PlasmoidItem {
         return Math.floor(diff / 86400) + "d ago"
     }
 
+    // Watch for config changes
+    onCfg_manualSessionKeyChanged: updateConfig()
+    onCfg_browserTypeChanged: updateConfig()
+
     // ============================================================
     // ToolTip
     // ============================================================
 
     Plasmoid.toolTipMainText: "Claude Code Usage"
     Plasmoid.toolTipSubText: {
-        if (lastError) return lastError
+        if (!serverRunning) return "Server not running"
+
+        if (lastError && !usageData) return lastError
+
         if (!usageData) return "No data"
 
         var session = usageData.session ? Math.round(usageData.session.used) + "%" : "?"
@@ -216,16 +309,26 @@ PlasmoidItem {
                 icon.name: "view-refresh"
                 text: "Refresh"
                 display: PlasmaComponents.AbstractButton.IconOnly
-                onClicked: fetchUsage()
-                enabled: !isLoading
+                onClicked: forceRefresh()
+                enabled: !isLoading && serverRunning
                 PlasmaComponents.ToolTip.text: "Refresh"
                 PlasmaComponents.ToolTip.visible: hovered
             }
         }
 
+        // Server status
+        PlasmaComponents.Label {
+            visible: !serverRunning
+            text: "⚠ Server not running. Start with:\npython3 ~/.local/share/plasma/plasmoids/com.github.claude-usage/contents/code/claude-usage.py --server &"
+            color: Kirigami.Theme.negativeTextColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+            font.pixelSize: PlasmaCore.Units.gridUnit * 0.8
+        }
+
         // Error state
         PlasmaComponents.Label {
-            visible: lastError !== ""
+            visible: serverRunning && lastError !== "" && !usageData
             text: lastError
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
@@ -257,11 +360,6 @@ PlasmoidItem {
                     from: 0
                     to: 100
                     value: usageData && usageData.session ? usageData.session.used : 0
-
-                    // Custom color based on usage
-                    property color progressColor: usageData && usageData.session
-                        ? getUsageColor(usageData.session.used)
-                        : Kirigami.Theme.highlightColor
                 }
 
                 PlasmaComponents.Label {
@@ -375,6 +473,6 @@ PlasmoidItem {
     // ============================================================
 
     Component.onCompleted: {
-        fetchUsage()
+        checkServer()
     }
 }
