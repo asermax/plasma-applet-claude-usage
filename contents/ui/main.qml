@@ -316,22 +316,8 @@ PlasmoidItem {
     }
 
     // ============================================================
-    // ToolTip
+    // ToolTip (using PlasmaCore.ToolTipArea in compactRepresentation)
     // ============================================================
-
-    Plasmoid.toolTipMainText: "Claude Code Usage"
-    Plasmoid.toolTipSubText: {
-        if (!cfg_sessionKey) return "Configure session key"
-
-        if (lastError && !usageData) return lastError
-
-        if (!usageData) return "No data"
-
-        var session = usageData.session ? Math.round(usageData.session.used) + "%" : "?"
-        var weekly = usageData.weekly ? Math.round(usageData.weekly.used) + "%" : "?"
-
-        return "Session: " + session + " | Weekly: " + weekly
-    }
 
     // ============================================================
     // Compact Representation (System Tray)
