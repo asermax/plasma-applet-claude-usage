@@ -318,6 +318,8 @@ PlasmoidItem {
         // Circular progress ring
         Shape {
             id: progressRing
+            layer.enabled: true
+            layer.samples: 8
 
             property real ringSize: Math.min(parent.width, parent.height) - Kirigami.Units.smallSpacing * 2
             property real ringWidth: ringSize * 0.15
