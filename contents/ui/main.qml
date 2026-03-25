@@ -76,6 +76,9 @@ PlasmoidItem {
         var cmd = "curl -s --max-time 15"
             + " --cookie " + shellEscape("sessionKey=" + cfg_sessionKey)
             + " -H 'Accept: application/json'"
+            + " -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'"
+            + " -H 'Referer: https://claude.ai/'"
+            + " -H 'Origin: https://claude.ai'"
             + " -w '\\n%{http_code}'"
             + " " + shellEscape(url)
 
