@@ -203,8 +203,7 @@ PlasmoidItem {
             newData.weekly = {
                 used: data.seven_day.utilization,
                 resets_at: data.seven_day.resets_at,
-                resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at)),
-                resets_date: formatResetDate(parseISODate(data.seven_day.resets_at))
+                resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at))
             }
         }
 
@@ -231,31 +230,12 @@ PlasmoidItem {
         var days = Math.floor(hours / 24)
 
         if (days > 0) {
-            var remainingHours = hours % 24
-            if (remainingHours > 0) return "Resets in " + days + "d " + remainingHours + "h"
-            return "Resets in " + days + " days"
+            return "Resets on " + resetsAt.toLocaleDateString(Qt.locale(), "MMM d")
         }
 
         if (hours > 0) return "Resets in " + hours + "h " + minutes + "m"
 
         return "Resets in " + minutes + "m"
-    }
-
-    function formatResetDate(resetsAt) {
-        if (!resetsAt) return ""
-
-        var now = new Date()
-        var diff = resetsAt - now
-
-        if (diff <= 0) return "Now"
-
-        if (diff < 86400000) { // < 24 hours
-            return resetsAt.toLocaleTimeString(Qt.locale(), "h:mm ap")
-        } else if (diff < 604800000) { // < 7 days
-            return resetsAt.toLocaleString(Qt.locale(), "MMM d, h:mm ap")
-        } else {
-            return resetsAt.toLocaleDateString(Qt.locale(), "MMM d")
-        }
     }
 
     function getUsageColor(percentage) {
@@ -566,7 +546,7 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                text: usageData && usageData.weekly ? usageData.weekly.resets_date : ""
+                text: usageData && usageData.weekly ? usageData.weekly.resets_in : ""
                 font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
             }
