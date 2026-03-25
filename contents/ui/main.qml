@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Shapes
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
 import org.kde.plasma.plasma5support as Plasma5Support
@@ -301,7 +302,7 @@ PlasmoidItem {
     compactRepresentation: PlasmaComponents.AbstractButton {
         id: compactRep
 
-        implicitWidth: Kirigami.Units.gridUnit * 3
+        implicitWidth: Kirigami.Units.gridUnit * 2
         implicitHeight: Kirigami.Units.gridUnit * 2
 
         onClicked: root.expanded = !root.expanded
@@ -314,34 +315,75 @@ PlasmoidItem {
             implicitHeight: Kirigami.Units.gridUnit
         }
 
-        Column {
-            anchors.centerIn: parent
-            visible: !isLoading
+        // Circular progress ring
+        Shape {
+            id: progressRing
 
-            // Session usage (top line)
-            PlasmaComponents.Label {
-                anchors.horizontalCenter: parent.horizontalCenter
-                text: {
-                    if (!cfg_sessionKey) return "?"
-                    if (lastError && !usageData) return "!"
-                    if (usageData && usageData.session) return Math.round(usageData.session.used) + "%"
-                    return "?"
-                }
-                color: {
-                    if (lastError && !usageData) return Kirigami.Theme.negativeTextColor
-                    return Kirigami.Theme.textColor
-                }
-                font.bold: true
-                font.pixelSize: Kirigami.Units.gridUnit * 0.7
+            property real ringSize: Math.min(parent.width, parent.height) - Kirigami.Units.smallSpacing * 2
+            property real ringWidth: ringSize * 0.15
+            property real ringRadius: (ringSize - ringWidth) / 2
+            property real centerXY: ringSize / 2
+
+            property bool hasError: lastError && !usageData
+            property bool isUnconfigured: !cfg_sessionKey
+            property bool hasData: usageData && usageData.session
+            property real sessionUsed: hasData ? usageData.session.used : 0
+
+            property real sweepAngle: {
+                if (isUnconfigured || hasError) return 360
+                if (hasData) return (Math.min(Math.max(sessionUsed, 0), 100) / 100) * 360
+                return 0
             }
 
-            // Weekly usage (bottom line)
-            PlasmaComponents.Label {
-                anchors.horizontalCenter: parent.horizontalCenter
-                visible: usageData != null
-                text: usageData && usageData.weekly ? Math.round(usageData.weekly.used) + "%" : "?"
-                color: Kirigami.Theme.disabledTextColor
-                font.pixelSize: Kirigami.Units.gridUnit * 0.6
+            property color arcColor: {
+                if (isUnconfigured) return Kirigami.Theme.disabledTextColor
+                if (hasError) return Kirigami.Theme.negativeTextColor
+                if (hasData) return getUsageColor(sessionUsed)
+                return Kirigami.Theme.disabledTextColor
+            }
+
+            anchors.centerIn: parent
+            width: ringSize
+            height: ringSize
+            visible: !isLoading
+
+            // Background track
+            ShapePath {
+                fillColor: "transparent"
+                strokeColor: Qt.rgba(
+                    Kirigami.Theme.textColor.r,
+                    Kirigami.Theme.textColor.g,
+                    Kirigami.Theme.textColor.b,
+                    0.15
+                )
+                strokeWidth: progressRing.ringWidth
+                capStyle: ShapePath.RoundCap
+
+                PathAngleArc {
+                    centerX: progressRing.centerXY
+                    centerY: progressRing.centerXY
+                    radiusX: progressRing.ringRadius
+                    radiusY: progressRing.ringRadius
+                    startAngle: -90
+                    sweepAngle: 360
+                }
+            }
+
+            // Foreground progress arc
+            ShapePath {
+                fillColor: "transparent"
+                strokeColor: progressRing.arcColor
+                strokeWidth: progressRing.ringWidth
+                capStyle: ShapePath.RoundCap
+
+                PathAngleArc {
+                    centerX: progressRing.centerXY
+                    centerY: progressRing.centerXY
+                    radiusX: progressRing.ringRadius
+                    radiusY: progressRing.ringRadius
+                    startAngle: -90
+                    sweepAngle: progressRing.sweepAngle
+                }
             }
         }
     }
