@@ -18,7 +18,7 @@
         <entry name="warningThreshold" type="Int">
             <default>75</default>
             <label>Warning color threshold</label>
-            <whatsthis>Usage percentage above which the color changes to warning (yellow)</whatsthis>
+            <whatsthis>Usage percentage above which the progress bar color changes to warning</whatsthis>
             <min>0</min>
             <max>100</max>
         </entry>
@@ -26,7 +26,7 @@
         <entry name="criticalThreshold" type="Int">
             <default>90</default>
             <label>Critical color threshold</label>
-            <whatsthis>Usage percentage above which the color changes to critical (red)</whatsthis>
+            <whatsthis>Usage percentage above which the progress bar color changes to critical</whatsthis>
             <min>0</min>
             <max>100</max>
         </entry>

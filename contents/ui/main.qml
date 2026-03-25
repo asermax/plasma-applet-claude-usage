@@ -118,18 +118,26 @@ PlasmoidItem {
             try {
                 var orgs = JSON.parse(response.body)
                 var orgId = null
+                var fallbackOrgId = null
 
-                // Find org with chat capability
+                // Prefer orgs with a paid subscription
                 for (var i = 0; i < orgs.length; i++) {
-                    if (orgs[i].capabilities && orgs[i].capabilities.indexOf("chat") >= 0) {
-                        orgId = orgs[i].uuid
+                    var org = orgs[i]
+                    var hasChat = org.capabilities && org.capabilities.indexOf("chat") >= 0
+
+                    if (!hasChat) continue
+
+                    if (org.billing_type && org.billing_type !== "none") {
+                        orgId = org.uuid
                         break
+                    }
+
+                    if (!fallbackOrgId) {
+                        fallbackOrgId = org.uuid
                     }
                 }
 
-                if (!orgId && orgs.length > 0) {
-                    orgId = orgs[0].uuid
-                }
+                orgId = orgId || fallbackOrgId || (orgs.length > 0 ? orgs[0].uuid : null)
 
                 if (orgId) {
                     fetchUsageData(orgId)
@@ -146,14 +154,14 @@ PlasmoidItem {
 
     function fetchUsageData(orgId) {
         curlRequest("https://claude.ai/api/organizations/" + orgId + "/usage", function(response) {
+            isLoading = false
+
             if (response.error) {
-                isLoading = false
                 lastError = response.error
                 return
             }
 
             if (response.status !== 200) {
-                isLoading = false
                 lastError = "Failed to fetch usage: " + response.status
                 return
             }
@@ -161,44 +169,19 @@ PlasmoidItem {
             try {
                 var data = JSON.parse(response.body)
                 processUsageData(data)
-                fetchExtraUsage(orgId)
+                lastUpdated = new Date()
             } catch (e) {
-                isLoading = false
                 lastError = "Failed to parse usage data"
             }
         })
     }
 
-    function fetchExtraUsage(orgId) {
-        curlRequest("https://claude.ai/api/organizations/" + orgId + "/overage_spend_limit", function(response) {
-            isLoading = false
-
-            if (!response.error && response.status === 200) {
-                try {
-                    var extraData = JSON.parse(response.body)
-
-                    if (usageData && extraData.is_enabled) {
-                        usageData.extra_usage = {
-                            used: extraData.used_credits / 100.0,
-                            limit: extraData.monthly_credit_limit / 100.0,
-                            currency: extraData.currency || "USD",
-                            enabled: true
-                        }
-                        usageData = usageData
-                    }
-                } catch (e) {}
-            }
-
-            lastUpdated = new Date()
-        })
-    }
-
     function processUsageData(data) {
-        usageData = {}
+        var newData = {}
 
         // Session (5-hour window)
         if (data.five_hour && data.five_hour.utilization !== undefined) {
-            usageData.session = {
+            newData.session = {
                 used: data.five_hour.utilization,
                 resets_at: data.five_hour.resets_at,
                 resets_in: formatTimeRemaining(parseISODate(data.five_hour.resets_at))
@@ -207,7 +190,7 @@ PlasmoidItem {
 
         // Weekly (7-day window)
         if (data.seven_day && data.seven_day.utilization !== undefined) {
-            usageData.weekly = {
+            newData.weekly = {
                 used: data.seven_day.utilization,
                 resets_at: data.seven_day.resets_at,
                 resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at)),
@@ -215,7 +198,7 @@ PlasmoidItem {
             }
         }
 
-        usageData.extra_usage = null
+        usageData = newData
         lastError = ""
     }
 
@@ -271,7 +254,7 @@ PlasmoidItem {
         } else if (percentage >= cfg_warningThreshold) {
             return Kirigami.Theme.neutralTextColor
         }
-        return Kirigami.Theme.positiveTextColor
+        return Kirigami.Theme.highlightColor
     }
 
     function formatTimeSince(date) {
@@ -300,12 +283,14 @@ PlasmoidItem {
         var text = ""
 
         if (usageData.session) {
-            text += "Session: " + Math.round(usageData.session.used) + "% - " + usageData.session.resets_in
+            text += "Session: " + Math.round(usageData.session.used) + "%"
+            if (usageData.session.resets_in) text += " - " + usageData.session.resets_in
         }
 
         if (usageData.weekly) {
             if (text) text += "\n"
-            text += "Weekly: " + Math.round(usageData.weekly.used) + "% - " + usageData.weekly.resets_in
+            text += "Weekly: " + Math.round(usageData.weekly.used) + "%"
+            if (usageData.weekly.resets_in) text += " - " + usageData.weekly.resets_in
         }
 
         return text
@@ -353,9 +338,7 @@ PlasmoidItem {
                     return "?"
                 }
                 color: {
-                    if (!cfg_sessionKey) return Kirigami.Theme.disabledTextColor
                     if (lastError && !usageData) return Kirigami.Theme.negativeTextColor
-                    if (usageData && usageData.session) return getUsageColor(usageData.session.used)
                     return Kirigami.Theme.textColor
                 }
                 font.bold: true
@@ -367,7 +350,7 @@ PlasmoidItem {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: usageData != null
                 text: usageData && usageData.weekly ? Math.round(usageData.weekly.used) + "%" : "?"
-                color: usageData && usageData.weekly ? getUsageColor(usageData.weekly.used) : Kirigami.Theme.disabledTextColor
+                color: Kirigami.Theme.disabledTextColor
                 font.pixelSize: Kirigami.Units.gridUnit * 0.6
             }
         }
@@ -377,11 +360,14 @@ PlasmoidItem {
     // Full Representation (Popup)
     // ============================================================
 
-    fullRepresentation: ColumnLayout {
-        id: fullRep
+    fullRepresentation: Item {
+        implicitWidth: fullRep.implicitWidth + Kirigami.Units.largeSpacing * 2
+        implicitHeight: fullRep.implicitHeight + Kirigami.Units.largeSpacing * 2
 
-        implicitWidth: Kirigami.Units.gridUnit * 18
-        implicitHeight: Kirigami.Units.gridUnit * 14
+    ColumnLayout {
+        id: fullRep
+        anchors.fill: parent
+        anchors.margins: Kirigami.Units.largeSpacing
         spacing: Kirigami.Units.smallSpacing
 
         // Header
@@ -478,18 +464,13 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
 
-                // Custom Progress Bar
                 Rectangle {
-                    id: sessionProgress
                     Layout.fillWidth: true
                     implicitHeight: Kirigami.Units.gridUnit * 0.4
                     radius: height / 2
-                    color: Kirigami.Theme.alternateBackgroundColor
+                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
 
                     property real progressValue: usageData && usageData.session ? usageData.session.used : 0
-                    property color progressColor: usageData && usageData.session
-                        ? getUsageColor(usageData.session.used)
-                        : Kirigami.Theme.highlightColor
 
                     Rectangle {
                         anchors.left: parent.left
@@ -497,7 +478,9 @@ PlasmoidItem {
                         anchors.bottom: parent.bottom
                         width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
                         radius: parent.radius
-                        color: parent.progressColor
+                        color: usageData && usageData.session
+                            ? getUsageColor(usageData.session.used)
+                            : Kirigami.Theme.highlightColor
 
                         Behavior on width {
                             NumberAnimation { duration: 200 }
@@ -510,9 +493,6 @@ PlasmoidItem {
                         ? Math.round(usageData.session.used) + "%"
                         : "0%"
                     font.bold: true
-                    color: usageData && usageData.session
-                        ? getUsageColor(usageData.session.used)
-                        : Kirigami.Theme.textColor
                     Layout.minimumWidth: Kirigami.Units.gridUnit * 2
                     horizontalAlignment: Text.AlignRight
                 }
@@ -542,12 +522,11 @@ PlasmoidItem {
                 Layout.fillWidth: true
                 spacing: Kirigami.Units.smallSpacing
 
-                // Custom Progress Bar
                 Rectangle {
                     Layout.fillWidth: true
                     implicitHeight: Kirigami.Units.gridUnit * 0.4
                     radius: height / 2
-                    color: Kirigami.Theme.alternateBackgroundColor
+                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
 
                     property real progressValue: usageData && usageData.weekly ? usageData.weekly.used : 0
 
@@ -572,9 +551,6 @@ PlasmoidItem {
                         ? Math.round(usageData.weekly.used) + "%"
                         : "0%"
                     font.bold: true
-                    color: usageData && usageData.weekly
-                        ? getUsageColor(usageData.weekly.used)
-                        : Kirigami.Theme.textColor
                     Layout.minimumWidth: Kirigami.Units.gridUnit * 2
                     horizontalAlignment: Text.AlignRight
                 }
@@ -587,45 +563,16 @@ PlasmoidItem {
             }
         }
 
-        // Extra usage (only shown when enabled)
-        ColumnLayout {
-            visible: usageData && usageData.extra_usage && usageData.extra_usage.enabled
-            Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-            Layout.topMargin: Kirigami.Units.smallSpacing
-
-            PlasmaComponents.Label {
-                text: "Extra Usage (Monthly)"
-                font.pixelSize: Kirigami.Units.gridUnit * 0.9
-                color: Kirigami.Theme.disabledTextColor
-            }
-
-            PlasmaComponents.Label {
-                text: {
-                    if (!usageData || !usageData.extra_usage) return ""
-
-                    var used = usageData.extra_usage.used.toFixed(2)
-                    var limit = usageData.extra_usage.limit.toFixed(2)
-
-                    return "$" + used + " / $" + limit + " used"
-                }
-                font.bold: true
-            }
-        }
-
-        // Spacer
-        Item {
-            Layout.fillHeight: true
-        }
-
         // Footer with last updated time
         PlasmaComponents.Label {
             Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
             text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated) : ""
             font.pixelSize: Kirigami.Units.gridUnit * 0.7
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignRight
         }
+    }
     }
 
     // ============================================================

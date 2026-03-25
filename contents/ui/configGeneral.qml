@@ -17,7 +17,6 @@ Kirigami.FormLayout {
         Kirigami.FormData.label: i18n("Authentication")
     }
 
-    // Session key
     TextField {
         id: sessionKeyField
         Kirigami.FormData.label: i18n("Session Key:")
@@ -28,7 +27,7 @@ Kirigami.FormLayout {
 
     PlasmaComponents.Label {
         Layout.fillWidth: true
-        text: i18n("To get your session key:\n1. Go to claude.ai and your browser and login\n2. Open DevTools (F12) → Application → Cookies\n3. Copy the 'sessionKey' value")
+        text: i18n("To get your session key:\n1. Go to claude.ai in your browser and login\n2. Open DevTools (F12) → Application → Cookies\n3. Copy the 'sessionKey' value")
         font: Kirigami.Theme.smallFont
         color: Kirigami.Theme.disabledTextColor
         wrapMode: Text.WordWrap
@@ -40,7 +39,6 @@ Kirigami.FormLayout {
         Kirigami.FormData.label: i18n("Display Options")
     }
 
-    // Refresh interval
     SpinBox {
         id: refreshIntervalSpinBox
         Kirigami.FormData.label: i18n("Refresh interval (seconds):")
@@ -50,7 +48,6 @@ Kirigami.FormLayout {
         editable: true
     }
 
-    // Warning threshold
     SpinBox {
         id: warningThresholdSpinBox
         Kirigami.FormData.label: i18n("Warning threshold (%):")
@@ -60,7 +57,6 @@ Kirigami.FormLayout {
         editable: true
     }
 
-    // Critical threshold
     SpinBox {
         id: criticalThresholdSpinBox
         Kirigami.FormData.label: i18n("Critical threshold (%):")
