@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+
+    <kcfgfile name=""/>
+
+    <group name="General">
+        <entry name="refreshInterval" type="Int">
+            <default>300</default>
+            <label>Refresh interval in seconds</label>
+            <whatsthis>How often to refresh usage data (in seconds)</whatsthis>
+            <min>60</min>
+            <max>3600</max>
+        </entry>
+
+        <entry name="showWeeklyInTray" type="Bool">
+            <default>false</default>
+            <label>Show weekly usage in tray</label>
+            <whatsthis>If true, shows weekly usage percentage in the system tray instead of session usage</whatsthis>
+        </entry>
+
+        <entry name="warningThreshold" type="Int">
+            <default>75</default>
+            <label>Warning color threshold</label>
+            <whatsthis>Usage percentage above which the color changes to warning (yellow)</whatsthis>
+            <min>0</min>
+            <max>100</max>
+        </entry>
+
+        <entry name="criticalThreshold" type="Int">
+            <default>90</default>
+            <label>Critical color threshold</label>
+            <whatsthis>Usage percentage above which the color changes to critical (red)</whatsthis>
+            <min>0</min>
+            <max>100</max>
+        </entry>
+
+        <entry name="manualSessionKey" type="String">
+            <default></default>
+            <label>Manual session key</label>
+            <whatsthis>Optional: Manual sessionKey cookie value. If set, overrides browser cookie extraction.</whatsthis>
+        </entry>
+
+        <entry name="browserType" type="String">
+            <default>auto</default>
+            <label>Browser type for cookie extraction</label>
+            <whatsthis>Which browser to extract cookies from: auto, chrome, or firefox</whatsthis>
+        </entry>
+    </group>
+
+</kcfg>

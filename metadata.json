@@ -1,0 +1,20 @@
+{
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "",
+                "Name": "Agus"
+            }
+        ],
+        "Category": "System Information",
+        "Description": "Displays Claude Code usage statistics in the system tray",
+        "Icon": "view-statistics",
+        "Id": "com.github.claude-usage",
+        "Name": "Claude Code Usage",
+        "Version": "1.0.0",
+        "Website": "https://github.com/asermax/plasma-applet-claude-usage",
+        "License": "MIT"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "KPackageStructure": "Plasma/Applet"
+}
