@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import org.kde.plasma.plasmoid
 import org.kde.plasma.components as PlasmaComponents
+import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.kirigami as Kirigami
 
 PlasmoidItem {
@@ -19,7 +20,6 @@ PlasmoidItem {
     // Configuration properties
     property string cfg_sessionKey: plasmoid.configuration.sessionKey
     property int cfg_refreshInterval: plasmoid.configuration.refreshInterval
-    property bool cfg_showWeeklyInTray: plasmoid.configuration.showWeeklyInTray
     property int cfg_warningThreshold: plasmoid.configuration.warningThreshold
     property int cfg_criticalThreshold: plasmoid.configuration.criticalThreshold
 
@@ -36,6 +36,54 @@ PlasmoidItem {
     }
 
     // ============================================================
+    // HTTP requests via curl (QML XMLHttpRequest strips Cookie headers)
+    // ============================================================
+
+    Plasma5Support.DataSource {
+        id: executable
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(sourceName, data) {
+            var handler = requestHandlers[sourceName]
+            if (handler) {
+                delete requestHandlers[sourceName]
+
+                var exitCode = data["exit code"]
+                var stdout = (data["stdout"] || "").trim()
+
+                if (exitCode !== 0) {
+                    handler({ error: exitCode === 28 ? "Request timed out" : "Network error" })
+                } else {
+                    var lastNewline = stdout.lastIndexOf('\n')
+                    var statusCode = parseInt(lastNewline >= 0 ? stdout.substring(lastNewline + 1) : stdout)
+                    var body = lastNewline >= 0 ? stdout.substring(0, lastNewline) : ""
+
+                    handler({ status: statusCode, body: body })
+                }
+            }
+            disconnectSource(sourceName)
+        }
+    }
+
+    property var requestHandlers: ({})
+
+    function shellEscape(str) {
+        return "'" + str.replace(/'/g, "'\\''") + "'"
+    }
+
+    function curlRequest(url, handler) {
+        var cmd = "curl -s --max-time 15"
+            + " --cookie " + shellEscape("sessionKey=" + cfg_sessionKey)
+            + " -H 'Accept: application/json'"
+            + " -w '\\n%{http_code}'"
+            + " " + shellEscape(url)
+
+        requestHandlers[cmd] = handler
+        executable.connectSource(cmd)
+    }
+
+    // ============================================================
     // Functions
     // ============================================================
 
@@ -45,133 +93,101 @@ PlasmoidItem {
         isLoading = true
         lastError = ""
 
-        // First get organization
-        var orgXhr = new XMLHttpRequest()
-        orgXhr.open("GET", "https://claude.ai/api/organizations", true)
-        orgXhr.setRequestHeader("Cookie", "sessionKey=" + cfg_sessionKey)
-        orgXhr.setRequestHeader("Accept", "application/json")
-        orgXhr.timeout = 15000
+        curlRequest("https://claude.ai/api/organizations", function(response) {
+            if (response.error) {
+                isLoading = false
+                lastError = response.error
+                return
+            }
 
-        orgXhr.onreadystatechange = function() {
-            if (orgXhr.readyState === XMLHttpRequest.DONE) {
-                if (orgXhr.status === 200) {
-                    try {
-                        var orgs = JSON.parse(orgXhr.responseText)
-                        var orgId = null
+            if (response.status === 401 || response.status === 403) {
+                isLoading = false
+                lastError = "Session expired - update cookie in config"
+                return
+            }
 
-                        // Find org with chat capability
-                        for (var i = 0; i < orgs.length; i++) {
-                            if (orgs[i].capabilities && orgs[i].capabilities.indexOf("chat") >= 0) {
-                                orgId = orgs[i].uuid
-                                break
-                            }
-                        }
+            if (response.status !== 200) {
+                isLoading = false
+                lastError = "Failed to fetch organizations: " + response.status
+                return
+            }
 
-                        if (!orgId && orgs.length > 0) {
-                            orgId = orgs[0].uuid
-                        }
+            try {
+                var orgs = JSON.parse(response.body)
+                var orgId = null
 
-                        if (orgId) {
-                            fetchUsageData(orgId)
-                        } else {
-                            isLoading = false
-                            lastError = "No organization found"
-                        }
-                    } catch (e) {
-                        isLoading = false
-                        lastError = "Failed to parse organizations"
+                // Find org with chat capability
+                for (var i = 0; i < orgs.length; i++) {
+                    if (orgs[i].capabilities && orgs[i].capabilities.indexOf("chat") >= 0) {
+                        orgId = orgs[i].uuid
+                        break
                     }
-                } else if (orgXhr.status === 401 || orgXhr.status === 403) {
-                    isLoading = false
-                    lastError = "Session expired - update cookie in config"
+                }
+
+                if (!orgId && orgs.length > 0) {
+                    orgId = orgs[0].uuid
+                }
+
+                if (orgId) {
+                    fetchUsageData(orgId)
                 } else {
                     isLoading = false
-                    lastError = "Failed to fetch organizations: " + orgXhr.status
+                    lastError = "No organization found"
                 }
+            } catch (e) {
+                isLoading = false
+                lastError = "Failed to parse organizations"
             }
-        }
-
-        orgXhr.onerror = function() {
-            isLoading = false
-            lastError = "Network error"
-        }
-
-        orgXhr.ontimeout = function() {
-            isLoading = false
-            lastError = "Request timed out"
-        }
-
-        orgXhr.send()
+        })
     }
 
     function fetchUsageData(orgId) {
-        var usageXhr = new XMLHttpRequest()
-        usageXhr.open("GET", "https://claude.ai/api/organizations/" + orgId + "/usage", true)
-        usageXhr.setRequestHeader("Cookie", "sessionKey=" + cfg_sessionKey)
-        usageXhr.setRequestHeader("Accept", "application/json")
-        usageXhr.timeout = 15000
-
-        usageXhr.onreadystatechange = function() {
-            if (usageXhr.readyState === XMLHttpRequest.DONE) {
-                if (usageXhr.status === 200) {
-                    try {
-                        var data = JSON.parse(usageXhr.responseText)
-                        processUsageData(data)
-                        fetchExtraUsage(orgId)
-                    } catch (e) {
-                        isLoading = false
-                        lastError = "Failed to parse usage data"
-                    }
-                } else {
-                    isLoading = false
-                    lastError = "Failed to fetch usage: " + usageXhr.status
-                }
+        curlRequest("https://claude.ai/api/organizations/" + orgId + "/usage", function(response) {
+            if (response.error) {
+                isLoading = false
+                lastError = response.error
+                return
             }
-        }
 
-        usageXhr.onerror = function() {
-            isLoading = false
-            lastError = "Network error"
-        }
+            if (response.status !== 200) {
+                isLoading = false
+                lastError = "Failed to fetch usage: " + response.status
+                return
+            }
 
-        usageXhr.send()
+            try {
+                var data = JSON.parse(response.body)
+                processUsageData(data)
+                fetchExtraUsage(orgId)
+            } catch (e) {
+                isLoading = false
+                lastError = "Failed to parse usage data"
+            }
+        })
     }
 
     function fetchExtraUsage(orgId) {
-        var extraXhr = new XMLHttpRequest()
-        extraXhr.open("GET", "https://claude.ai/api/organizations/" + orgId + "/overage_spend_limit", true)
-        extraXhr.setRequestHeader("Cookie", "sessionKey=" + cfg_sessionKey)
-        extraXhr.setRequestHeader("Accept", "application/json")
-        extraXhr.timeout = 10000
-
-        extraXhr.onreadystatechange = function() {
-            if (extraXhr.readyState === XMLHttpRequest.DONE) {
-                isLoading = false
-                if (extraXhr.status === 200) {
-                    try {
-                        var extraData = JSON.parse(extraXhr.responseText)
-                        if (usageData && extraData.is_enabled) {
-                            usageData.extra_usage = {
-                                used: extraData.used_credits / 100.0,
-                                limit: extraData.monthly_credit_limit / 100.0,
-                                currency: extraData.currency || "USD",
-                                enabled: true
-                            }
-                            // Force QML binding re-evaluation after in-place mutation
-                            usageData = usageData
-                        }
-                    } catch (e) {}
-                }
-                lastUpdated = new Date()
-            }
-        }
-
-        extraXhr.onerror = function() {
+        curlRequest("https://claude.ai/api/organizations/" + orgId + "/overage_spend_limit", function(response) {
             isLoading = false
-            lastUpdated = new Date()
-        }
 
-        extraXhr.send()
+            if (!response.error && response.status === 200) {
+                try {
+                    var extraData = JSON.parse(response.body)
+
+                    if (usageData && extraData.is_enabled) {
+                        usageData.extra_usage = {
+                            used: extraData.used_credits / 100.0,
+                            limit: extraData.monthly_credit_limit / 100.0,
+                            currency: extraData.currency || "USD",
+                            enabled: true
+                        }
+                        usageData = usageData
+                    }
+                } catch (e) {}
+            }
+
+            lastUpdated = new Date()
+        })
     }
 
     function processUsageData(data) {
@@ -255,46 +271,6 @@ PlasmoidItem {
         return Kirigami.Theme.positiveTextColor
     }
 
-    function getTrayText() {
-        if (!cfg_sessionKey) return "?"
-
-        if (isLoading) return "..."
-
-        if (lastError) return "!"
-
-        if (!usageData) return "?"
-
-        if (cfg_showWeeklyInTray && usageData.weekly) {
-            return Math.round(usageData.weekly.used) + "%"
-        }
-
-        if (usageData.session) {
-            return Math.round(usageData.session.used) + "%"
-        }
-
-        return "?"
-    }
-
-    function getTrayColor() {
-        if (!cfg_sessionKey) {
-            return Kirigami.Theme.disabledTextColor
-        }
-
-        if (lastError && !usageData) {
-            return Kirigami.Theme.negativeTextColor
-        }
-
-        if (!usageData) {
-            return Kirigami.Theme.textColor
-        }
-
-        var percentage = cfg_showWeeklyInTray && usageData.weekly
-            ? usageData.weekly.used
-            : (usageData.session ? usageData.session.used : 0)
-
-        return getUsageColor(percentage)
-    }
-
     function formatTimeSince(date) {
         if (!date) return "Never"
 
@@ -347,18 +323,10 @@ PlasmoidItem {
     compactRepresentation: PlasmaComponents.AbstractButton {
         id: compactRep
 
-        implicitWidth: Kirigami.Units.gridUnit * 2.5
-        implicitHeight: Kirigami.Units.gridUnit
+        implicitWidth: Kirigami.Units.gridUnit * 3
+        implicitHeight: Kirigami.Units.gridUnit * 2
 
         onClicked: root.expanded = !root.expanded
-
-        PlasmaComponents.Label {
-            anchors.centerIn: parent
-            text: getTrayText()
-            color: getTrayColor()
-            font.bold: true
-            font.pixelSize: Kirigami.Units.gridUnit * 0.8
-        }
 
         PlasmaComponents.BusyIndicator {
             anchors.centerIn: parent
@@ -366,6 +334,39 @@ PlasmoidItem {
             visible: isLoading
             implicitWidth: Kirigami.Units.gridUnit
             implicitHeight: Kirigami.Units.gridUnit
+        }
+
+        Column {
+            anchors.centerIn: parent
+            visible: !isLoading
+
+            // Session usage (top line)
+            PlasmaComponents.Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: {
+                    if (!cfg_sessionKey) return "?"
+                    if (lastError && !usageData) return "!"
+                    if (usageData && usageData.session) return Math.round(usageData.session.used) + "%"
+                    return "?"
+                }
+                color: {
+                    if (!cfg_sessionKey) return Kirigami.Theme.disabledTextColor
+                    if (lastError && !usageData) return Kirigami.Theme.negativeTextColor
+                    if (usageData && usageData.session) return getUsageColor(usageData.session.used)
+                    return Kirigami.Theme.textColor
+                }
+                font.bold: true
+                font.pixelSize: Kirigami.Units.gridUnit * 0.7
+            }
+
+            // Weekly usage (bottom line)
+            PlasmaComponents.Label {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: usageData != null
+                text: usageData && usageData.weekly ? Math.round(usageData.weekly.used) + "%" : "?"
+                color: usageData && usageData.weekly ? getUsageColor(usageData.weekly.used) : Kirigami.Theme.disabledTextColor
+                font.pixelSize: Kirigami.Units.gridUnit * 0.6
+            }
         }
     }
 

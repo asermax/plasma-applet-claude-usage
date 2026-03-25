@@ -15,12 +15,6 @@
             <max>3600</max>
         </entry>
 
-        <entry name="showWeeklyInTray" type="Bool">
-            <default>false</default>
-            <label>Show weekly usage in tray</label>
-            <whatsthis>If true, shows weekly usage percentage in the system tray instead of session usage</whatsthis>
-        </entry>
-
         <entry name="warningThreshold" type="Int">
             <default>75</default>
             <label>Warning color threshold</label>

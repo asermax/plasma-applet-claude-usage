@@ -9,7 +9,6 @@ Kirigami.FormLayout {
 
     property alias cfg_sessionKey: sessionKeyField.text
     property alias cfg_refreshInterval: refreshIntervalSpinBox.value
-    property alias cfg_showWeeklyInTray: showWeeklyInTrayCheckBox.checked
     property alias cfg_warningThreshold: warningThresholdSpinBox.value
     property alias cfg_criticalThreshold: criticalThresholdSpinBox.value
 
@@ -49,13 +48,6 @@ Kirigami.FormLayout {
         to: 3600
         stepSize: 60
         editable: true
-    }
-
-    // Show weekly in tray
-    CheckBox {
-        id: showWeeklyInTrayCheckBox
-        Kirigami.FormData.label: i18n("Show weekly in tray:")
-        text: i18n("Display weekly usage instead of session")
     }
 
     // Warning threshold
