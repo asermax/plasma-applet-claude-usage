@@ -240,9 +240,9 @@ PlasmoidItem {
         if (diff <= 0) return "Now"
 
         if (diff < 86400000) { // < 24 hours
-            return resetsAt.toLocaleTimeString(Qt.locale(), "h:mm AP")
+            return resetsAt.toLocaleTimeString(Qt.locale(), "h:mm ap")
         } else if (diff < 604800000) { // < 7 days
-            return resetsAt.toLocaleDateString(Qt.locale(), "MMM d, h:mm AP")
+            return resetsAt.toLocaleString(Qt.locale(), "MMM d, h:mm ap")
         } else {
             return resetsAt.toLocaleDateString(Qt.locale(), "MMM d")
         }
@@ -361,19 +361,20 @@ PlasmoidItem {
     // ============================================================
 
     fullRepresentation: Item {
-        implicitWidth: fullRep.implicitWidth + Kirigami.Units.largeSpacing * 2
-        implicitHeight: fullRep.implicitHeight + Kirigami.Units.largeSpacing * 2
+        implicitWidth: fullRep.implicitWidth + Kirigami.Units.smallSpacing * 2
+        implicitHeight: fullRep.implicitHeight + Kirigami.Units.smallSpacing
 
     ColumnLayout {
         id: fullRep
         anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing
-        spacing: Kirigami.Units.smallSpacing
+        anchors.leftMargin: Kirigami.Units.smallSpacing
+        anchors.rightMargin: Kirigami.Units.smallSpacing
+        anchors.bottomMargin: Kirigami.Units.smallSpacing
+        spacing: 0
 
         // Header
         RowLayout {
             Layout.fillWidth: true
-            Layout.bottomMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Claude Code Usage"
@@ -452,6 +453,9 @@ PlasmoidItem {
         ColumnLayout {
             visible: usageData && usageData.session
             Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.smallSpacing
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            Layout.topMargin: Kirigami.Units.smallSpacing
             spacing: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
@@ -509,8 +513,10 @@ PlasmoidItem {
         ColumnLayout {
             visible: usageData && usageData.weekly
             Layout.fillWidth: true
+            Layout.leftMargin: Kirigami.Units.smallSpacing
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            Layout.topMargin: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.smallSpacing
-            Layout.topMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Weekly (7 day window)"
@@ -566,7 +572,9 @@ PlasmoidItem {
         // Footer with last updated time
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            Layout.topMargin: Kirigami.Units.smallSpacing
+            Layout.leftMargin: Kirigami.Units.smallSpacing
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            Layout.topMargin: Kirigami.Units.largeSpacing
             text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated) : ""
             font.pixelSize: Kirigami.Units.gridUnit * 0.7
             color: Kirigami.Theme.disabledTextColor
