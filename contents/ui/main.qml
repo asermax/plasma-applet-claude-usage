@@ -35,6 +35,16 @@ PlasmoidItem {
         onTriggered: fetchUsage()
     }
 
+    // Ticks every minute to keep "Updated: Xm ago" text fresh
+    property int timeTick: 0
+
+    Timer {
+        interval: 60000
+        running: lastUpdated != null
+        repeat: true
+        onTriggered: timeTick++
+    }
+
     // ============================================================
     // HTTP requests via curl (QML XMLHttpRequest strips Cookie headers)
     // ============================================================
@@ -257,7 +267,7 @@ PlasmoidItem {
         return Kirigami.Theme.highlightColor
     }
 
-    function formatTimeSince(date) {
+    function formatTimeSince(date, _tick) {
         if (!date) return "Never"
 
         var now = new Date()
@@ -369,6 +379,7 @@ PlasmoidItem {
         // Header
         RowLayout {
             Layout.fillWidth: true
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
                 text: "Claude Code Usage"
@@ -455,7 +466,6 @@ PlasmoidItem {
             PlasmaComponents.Label {
                 text: "Session (5h window)"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.9
-                color: Kirigami.Theme.disabledTextColor
             }
 
             RowLayout {
@@ -515,7 +525,6 @@ PlasmoidItem {
             PlasmaComponents.Label {
                 text: "Weekly (7 day window)"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.9
-                color: Kirigami.Theme.disabledTextColor
             }
 
             RowLayout {
@@ -569,7 +578,7 @@ PlasmoidItem {
             Layout.leftMargin: Kirigami.Units.smallSpacing
             Layout.rightMargin: Kirigami.Units.smallSpacing
             Layout.topMargin: Kirigami.Units.largeSpacing
-            text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated) : ""
+            text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated, timeTick) : ""
             font.pixelSize: Kirigami.Units.gridUnit * 0.7
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignRight
