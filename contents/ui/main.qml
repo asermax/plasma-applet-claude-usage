@@ -360,16 +360,10 @@ PlasmoidItem {
     // Full Representation (Popup)
     // ============================================================
 
-    fullRepresentation: Item {
-        implicitWidth: fullRep.implicitWidth + Kirigami.Units.smallSpacing * 2
-        implicitHeight: fullRep.implicitHeight + Kirigami.Units.smallSpacing
-
-    ColumnLayout {
+    fullRepresentation: ColumnLayout {
         id: fullRep
-        anchors.fill: parent
-        anchors.leftMargin: Kirigami.Units.smallSpacing
-        anchors.rightMargin: Kirigami.Units.smallSpacing
-        anchors.bottomMargin: Kirigami.Units.smallSpacing
+
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 18
         spacing: 0
 
         // Header
@@ -580,7 +574,6 @@ PlasmoidItem {
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignRight
         }
-    }
     }
 
     // ============================================================
