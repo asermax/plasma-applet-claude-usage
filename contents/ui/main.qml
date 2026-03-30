@@ -468,9 +468,9 @@ PlasmoidItem {
             return Math.max(rings, 1)
         }
 
-        Layout.minimumWidth: Kirigami.Units.gridUnit * 2 * ringCount
-        Layout.preferredWidth: Kirigami.Units.gridUnit * 2 * ringCount
-        Layout.maximumWidth: Kirigami.Units.gridUnit * 2 * ringCount
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 1.6 * ringCount
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 1.6 * ringCount
+        Layout.maximumWidth: Kirigami.Units.gridUnit * 1.6 * ringCount
         Layout.minimumHeight: Kirigami.Units.gridUnit * 2
         Layout.preferredHeight: Kirigami.Units.gridUnit * 2
 
@@ -493,7 +493,7 @@ PlasmoidItem {
                 id: claudeRingContainer
                 visible: hasClaudeConfig && (!isLoading || usageData)
 
-                property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing * 2
+                property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing
 
                 width: ringSize
                 height: ringSize
@@ -567,11 +567,9 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: "C"
-                    font.pixelSize: claudeRingContainer.ringSize * 0.35
+                    font.pixelSize: claudeRingContainer.ringSize * 0.45
                     font.bold: true
-                    color: claudeRing.hasData
-                        ? getUsageColor(claudeRing.sessionUsed)
-                        : Kirigami.Theme.disabledTextColor
+                    color: "white"
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
@@ -582,7 +580,7 @@ PlasmoidItem {
                 id: glmRingContainer
                 visible: hasGlmConfig && (!isLoading || glmUsageData)
 
-                property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing * 2
+                property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing
 
                 width: ringSize
                 height: ringSize
@@ -656,11 +654,9 @@ PlasmoidItem {
                 PlasmaComponents.Label {
                     anchors.centerIn: parent
                     text: "G"
-                    font.pixelSize: glmRingContainer.ringSize * 0.35
+                    font.pixelSize: glmRingContainer.ringSize * 0.45
                     font.bold: true
-                    color: glmRing.hasData
-                        ? getUsageColor(glmRing.usedPercentage)
-                        : Kirigami.Theme.disabledTextColor
+                    color: "white"
                     horizontalAlignment: Text.AlignHCenter
                     verticalAlignment: Text.AlignVCenter
                 }
