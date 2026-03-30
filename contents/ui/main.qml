@@ -461,14 +461,18 @@ PlasmoidItem {
     compactRepresentation: PlasmaComponents.AbstractButton {
         id: compactRep
 
-        implicitWidth: {
+        readonly property int ringCount: {
             var rings = 0
             if (hasClaudeConfig) rings++
             if (hasGlmConfig) rings++
-            if (rings === 0) rings = 1
-            return Kirigami.Units.gridUnit * 2 * rings
+            return Math.max(rings, 1)
         }
-        implicitHeight: Kirigami.Units.gridUnit * 2
+
+        Layout.minimumWidth: Kirigami.Units.gridUnit * 2 * ringCount
+        Layout.preferredWidth: Kirigami.Units.gridUnit * 2 * ringCount
+        Layout.maximumWidth: Kirigami.Units.gridUnit * 2 * ringCount
+        Layout.minimumHeight: Kirigami.Units.gridUnit * 2
+        Layout.preferredHeight: Kirigami.Units.gridUnit * 2
 
         onClicked: root.expanded = !root.expanded
 
