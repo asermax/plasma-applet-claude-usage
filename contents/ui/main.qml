@@ -416,14 +416,16 @@ PlasmoidItem {
         }
 
         if (hasGlmConfig && glmUsageData) {
-            if (glmUsageData.timeLimit) {
-                var text = "GLM Tools (5h): " + Math.round(glmUsageData.timeLimit.percentage) + "%"
-                if (glmUsageData.timeLimit.resetsIn) text += " - " + glmUsageData.timeLimit.resetsIn
+            if (glmUsageData.tokensLimit) {
+                var text = "GLM Session: " + Math.round(glmUsageData.tokensLimit.percentage) + "%"
+                if (glmUsageData.tokensLimit.resetsIn) text += " - " + glmUsageData.tokensLimit.resetsIn
                 parts.push(text)
             }
 
-            if (glmUsageData.tokensLimit) {
-                parts.push("GLM Tokens: " + Math.round(glmUsageData.tokensLimit.percentage) + "%")
+            if (glmUsageData.timeLimit) {
+                var text = "GLM Tools: " + Math.round(glmUsageData.timeLimit.percentage) + "%"
+                if (glmUsageData.timeLimit.resetsIn) text += " - " + glmUsageData.timeLimit.resetsIn
+                parts.push(text)
             }
         }
 
@@ -565,8 +567,8 @@ PlasmoidItem {
                 property real centerXY: ringSize / 2
 
                 property bool hasError: glmError && !glmUsageData
-                property bool hasData: glmUsageData && glmUsageData.timeLimit
-                property real usedPercentage: hasData ? glmUsageData.timeLimit.percentage : 0
+                property bool hasData: glmUsageData && glmUsageData.tokensLimit
+                property real usedPercentage: hasData ? glmUsageData.tokensLimit.percentage : 0
 
                 property real sweepAngle: {
                     if (hasError) return 360
@@ -870,8 +872,8 @@ PlasmoidItem {
         Kirigami.Separator {
             visible: hasClaudeConfig && hasGlmConfig
             Layout.fillWidth: true
-            Layout.topMargin: Kirigami.Units.smallSpacing
-            Layout.bottomMargin: Kirigami.Units.smallSpacing
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            Layout.bottomMargin: Kirigami.Units.largeSpacing
         }
 
         // ============================================================
@@ -904,9 +906,9 @@ PlasmoidItem {
                 Layout.rightMargin: Kirigami.Units.smallSpacing
             }
 
-            // TIME_LIMIT (5h window) - progress bar
+            // Session (5h window) - progress bar
             ColumnLayout {
-                visible: glmUsageData && glmUsageData.timeLimit
+                visible: glmUsageData && glmUsageData.tokensLimit
                 Layout.fillWidth: true
                 Layout.leftMargin: Kirigami.Units.smallSpacing
                 Layout.rightMargin: Kirigami.Units.smallSpacing
@@ -914,96 +916,7 @@ PlasmoidItem {
                 spacing: Kirigami.Units.smallSpacing
 
                 PlasmaComponents.Label {
-                    text: "Tool Usage (5h window)"
-                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
-                }
-
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Kirigami.Units.smallSpacing
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        implicitHeight: Kirigami.Units.gridUnit * 0.4
-                        radius: height / 2
-                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
-
-                        property real progressValue: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.percentage : 0
-
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.top: parent.top
-                            anchors.bottom: parent.bottom
-                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
-                            radius: parent.radius
-                            color: glmUsageData && glmUsageData.timeLimit
-                                ? getUsageColor(glmUsageData.timeLimit.percentage)
-                                : Kirigami.Theme.highlightColor
-
-                            Behavior on width {
-                                NumberAnimation { duration: 200 }
-                            }
-                        }
-                    }
-
-                    PlasmaComponents.Label {
-                        text: glmUsageData && glmUsageData.timeLimit
-                            ? Math.round(glmUsageData.timeLimit.percentage) + "%"
-                            : "0%"
-                        font.bold: true
-                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-                        horizontalAlignment: Text.AlignRight
-                    }
-                }
-
-                PlasmaComponents.Label {
-                    text: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.resetsIn : ""
-                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
-                    color: Kirigami.Theme.disabledTextColor
-                }
-
-                // Usage details per tool
-                ColumnLayout {
-                    visible: glmUsageData && glmUsageData.timeLimit && glmUsageData.timeLimit.usageDetails.length > 0
-                    Layout.fillWidth: true
-                    Layout.topMargin: Kirigami.Units.smallSpacing
-                    spacing: 2
-
-                    Repeater {
-                        model: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.usageDetails : []
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: Kirigami.Units.smallSpacing
-
-                            PlasmaComponents.Label {
-                                text: formatToolName(model.modelData.modelCode)
-                                font.pixelSize: Kirigami.Units.gridUnit * 0.75
-                                color: Kirigami.Theme.disabledTextColor
-                                Layout.fillWidth: true
-                            }
-
-                            PlasmaComponents.Label {
-                                text: model.modelData.usage
-                                font.pixelSize: Kirigami.Units.gridUnit * 0.75
-                                font.bold: true
-                            }
-                        }
-                    }
-                }
-            }
-
-            // TOKENS_LIMIT (monthly) - progress bar
-            ColumnLayout {
-                visible: glmUsageData && glmUsageData.tokensLimit
-                Layout.fillWidth: true
-                Layout.leftMargin: Kirigami.Units.smallSpacing
-                Layout.rightMargin: Kirigami.Units.smallSpacing
-                Layout.topMargin: Kirigami.Units.largeSpacing
-                spacing: Kirigami.Units.smallSpacing
-
-                PlasmaComponents.Label {
-                    text: "Monthly Token Quota"
+                    text: "Session (5h window)"
                     font.pixelSize: Kirigami.Units.gridUnit * 0.9
                 }
 
@@ -1047,6 +960,65 @@ PlasmoidItem {
 
                 PlasmaComponents.Label {
                     text: glmUsageData && glmUsageData.tokensLimit ? glmUsageData.tokensLimit.resetsIn : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
+            }
+
+            // Tools (Monthly window) - progress bar
+            ColumnLayout {
+                visible: glmUsageData && glmUsageData.timeLimit
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Tools (Monthly window)"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+
+                        property real progressValue: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.percentage : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: glmUsageData && glmUsageData.timeLimit
+                                ? getUsageColor(glmUsageData.timeLimit.percentage)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: glmUsageData && glmUsageData.timeLimit
+                            ? Math.round(glmUsageData.timeLimit.percentage) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.resetsIn : ""
                     font.pixelSize: Kirigami.Units.gridUnit * 0.8
                     color: Kirigami.Theme.disabledTextColor
                 }
