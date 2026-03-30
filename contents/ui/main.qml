@@ -486,147 +486,183 @@ PlasmoidItem {
 
         RowLayout {
             anchors.centerIn: parent
-            spacing: 0
+            spacing: Kirigami.Units.smallSpacing
 
             // Claude ring
-            Shape {
-                id: claudeRing
-                layer.enabled: true
-                layer.samples: 8
+            Item {
+                id: claudeRingContainer
+                visible: hasClaudeConfig && (!isLoading || usageData)
 
                 property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing * 2
-                property real ringWidth: ringSize * 0.15
-                property real ringRadius: (ringSize - ringWidth) / 2
-                property real centerXY: ringSize / 2
-
-                property bool hasError: lastError && !usageData
-                property bool hasData: usageData && usageData.session
-                property real sessionUsed: hasData ? usageData.session.used : 0
-
-                property real sweepAngle: {
-                    if (hasError) return 360
-                    if (hasData) return (Math.min(Math.max(sessionUsed, 0), 100) / 100) * 360
-                    return 0
-                }
-
-                property color arcColor: {
-                    if (hasError) return Kirigami.Theme.negativeTextColor
-                    if (hasData) return getUsageColor(sessionUsed)
-                    return Kirigami.Theme.disabledTextColor
-                }
 
                 width: ringSize
                 height: ringSize
-                visible: hasClaudeConfig && (!isLoading || usageData)
 
-                // Background track
-                ShapePath {
-                    fillColor: "transparent"
-                    strokeColor: Qt.rgba(
-                        Kirigami.Theme.textColor.r,
-                        Kirigami.Theme.textColor.g,
-                        Kirigami.Theme.textColor.b,
-                        0.15
-                    )
-                    strokeWidth: claudeRing.ringWidth
-                    capStyle: ShapePath.RoundCap
+                Shape {
+                    id: claudeRing
+                    anchors.fill: parent
+                    layer.enabled: true
+                    layer.samples: 8
 
-                    PathAngleArc {
-                        centerX: claudeRing.centerXY
-                        centerY: claudeRing.centerXY
-                        radiusX: claudeRing.ringRadius
-                        radiusY: claudeRing.ringRadius
-                        startAngle: -90
-                        sweepAngle: 360
+                    property real ringWidth: claudeRingContainer.ringSize * 0.15
+                    property real ringRadius: (claudeRingContainer.ringSize - ringWidth) / 2
+                    property real centerXY: claudeRingContainer.ringSize / 2
+
+                    property bool hasError: lastError && !usageData
+                    property bool hasData: usageData && usageData.session
+                    property real sessionUsed: hasData ? usageData.session.used : 0
+
+                    property real sweepAngle: {
+                        if (hasError) return 360
+                        if (hasData) return (Math.min(Math.max(sessionUsed, 0), 100) / 100) * 360
+                        return 0
+                    }
+
+                    property color arcColor: {
+                        if (hasError) return Kirigami.Theme.negativeTextColor
+                        if (hasData) return getUsageColor(sessionUsed)
+                        return Kirigami.Theme.disabledTextColor
+                    }
+
+                    // Background track
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: Qt.rgba(
+                            Kirigami.Theme.textColor.r,
+                            Kirigami.Theme.textColor.g,
+                            Kirigami.Theme.textColor.b,
+                            0.15
+                        )
+                        strokeWidth: claudeRing.ringWidth
+                        capStyle: ShapePath.RoundCap
+
+                        PathAngleArc {
+                            centerX: claudeRing.centerXY
+                            centerY: claudeRing.centerXY
+                            radiusX: claudeRing.ringRadius
+                            radiusY: claudeRing.ringRadius
+                            startAngle: -90
+                            sweepAngle: 360
+                        }
+                    }
+
+                    // Foreground progress arc
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: claudeRing.arcColor
+                        strokeWidth: claudeRing.ringWidth
+                        capStyle: ShapePath.RoundCap
+
+                        PathAngleArc {
+                            centerX: claudeRing.centerXY
+                            centerY: claudeRing.centerXY
+                            radiusX: claudeRing.ringRadius
+                            radiusY: claudeRing.ringRadius
+                            startAngle: -90
+                            sweepAngle: claudeRing.sweepAngle
+                        }
                     }
                 }
 
-                // Foreground progress arc
-                ShapePath {
-                    fillColor: "transparent"
-                    strokeColor: claudeRing.arcColor
-                    strokeWidth: claudeRing.ringWidth
-                    capStyle: ShapePath.RoundCap
-
-                    PathAngleArc {
-                        centerX: claudeRing.centerXY
-                        centerY: claudeRing.centerXY
-                        radiusX: claudeRing.ringRadius
-                        radiusY: claudeRing.ringRadius
-                        startAngle: -90
-                        sweepAngle: claudeRing.sweepAngle
-                    }
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: "C"
+                    font.pixelSize: claudeRingContainer.ringSize * 0.35
+                    font.bold: true
+                    color: claudeRing.hasData
+                        ? getUsageColor(claudeRing.sessionUsed)
+                        : Kirigami.Theme.disabledTextColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                 }
             }
 
             // GLM ring
-            Shape {
-                id: glmRing
-                layer.enabled: true
-                layer.samples: 8
+            Item {
+                id: glmRingContainer
+                visible: hasGlmConfig && (!isLoading || glmUsageData)
 
                 property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing * 2
-                property real ringWidth: ringSize * 0.15
-                property real ringRadius: (ringSize - ringWidth) / 2
-                property real centerXY: ringSize / 2
-
-                property bool hasError: glmError && !glmUsageData
-                property bool hasData: glmUsageData && glmUsageData.tokensLimit
-                property real usedPercentage: hasData ? glmUsageData.tokensLimit.percentage : 0
-
-                property real sweepAngle: {
-                    if (hasError) return 360
-                    if (hasData) return (Math.min(Math.max(usedPercentage, 0), 100) / 100) * 360
-                    return 0
-                }
-
-                property color arcColor: {
-                    if (hasError) return Kirigami.Theme.negativeTextColor
-                    if (hasData) return getUsageColor(usedPercentage)
-                    return Kirigami.Theme.disabledTextColor
-                }
 
                 width: ringSize
                 height: ringSize
-                visible: hasGlmConfig && (!isLoading || glmUsageData)
 
-                // Background track
-                ShapePath {
-                    fillColor: "transparent"
-                    strokeColor: Qt.rgba(
-                        Kirigami.Theme.textColor.r,
-                        Kirigami.Theme.textColor.g,
-                        Kirigami.Theme.textColor.b,
-                        0.15
-                    )
-                    strokeWidth: glmRing.ringWidth
-                    capStyle: ShapePath.RoundCap
+                Shape {
+                    id: glmRing
+                    anchors.fill: parent
+                    layer.enabled: true
+                    layer.samples: 8
 
-                    PathAngleArc {
-                        centerX: glmRing.centerXY
-                        centerY: glmRing.centerXY
-                        radiusX: glmRing.ringRadius
-                        radiusY: glmRing.ringRadius
-                        startAngle: -90
-                        sweepAngle: 360
+                    property real ringWidth: glmRingContainer.ringSize * 0.15
+                    property real ringRadius: (glmRingContainer.ringSize - ringWidth) / 2
+                    property real centerXY: glmRingContainer.ringSize / 2
+
+                    property bool hasError: glmError && !glmUsageData
+                    property bool hasData: glmUsageData && glmUsageData.tokensLimit
+                    property real usedPercentage: hasData ? glmUsageData.tokensLimit.percentage : 0
+
+                    property real sweepAngle: {
+                        if (hasError) return 360
+                        if (hasData) return (Math.min(Math.max(usedPercentage, 0), 100) / 100) * 360
+                        return 0
+                    }
+
+                    property color arcColor: {
+                        if (hasError) return Kirigami.Theme.negativeTextColor
+                        if (hasData) return getUsageColor(usedPercentage)
+                        return Kirigami.Theme.disabledTextColor
+                    }
+
+                    // Background track
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: Qt.rgba(
+                            Kirigami.Theme.textColor.r,
+                            Kirigami.Theme.textColor.g,
+                            Kirigami.Theme.textColor.b,
+                            0.15
+                        )
+                        strokeWidth: glmRing.ringWidth
+                        capStyle: ShapePath.RoundCap
+
+                        PathAngleArc {
+                            centerX: glmRing.centerXY
+                            centerY: glmRing.centerXY
+                            radiusX: glmRing.ringRadius
+                            radiusY: glmRing.ringRadius
+                            startAngle: -90
+                            sweepAngle: 360
+                        }
+                    }
+
+                    // Foreground progress arc
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: glmRing.arcColor
+                        strokeWidth: glmRing.ringWidth
+                        capStyle: ShapePath.RoundCap
+
+                        PathAngleArc {
+                            centerX: glmRing.centerXY
+                            centerY: glmRing.centerXY
+                            radiusX: glmRing.ringRadius
+                            radiusY: glmRing.ringRadius
+                            startAngle: -90
+                            sweepAngle: glmRing.sweepAngle
+                        }
                     }
                 }
 
-                // Foreground progress arc
-                ShapePath {
-                    fillColor: "transparent"
-                    strokeColor: glmRing.arcColor
-                    strokeWidth: glmRing.ringWidth
-                    capStyle: ShapePath.RoundCap
-
-                    PathAngleArc {
-                        centerX: glmRing.centerXY
-                        centerY: glmRing.centerXY
-                        radiusX: glmRing.ringRadius
-                        radiusY: glmRing.ringRadius
-                        startAngle: -90
-                        sweepAngle: glmRing.sweepAngle
-                    }
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: "G"
+                    font.pixelSize: glmRingContainer.ringSize * 0.35
+                    font.bold: true
+                    color: glmRing.hasData
+                        ? getUsageColor(glmRing.usedPercentage)
+                        : Kirigami.Theme.disabledTextColor
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
                 }
             }
         }
