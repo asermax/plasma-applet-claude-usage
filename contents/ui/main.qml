@@ -13,16 +13,29 @@ PlasmoidItem {
     // Properties
     // ============================================================
 
+    // Claude
     property var usageData: null
     property string lastError: ""
+
+    // GLM
+    property var glmUsageData: null
+    property string glmError: ""
+
+    // Shared
     property bool isLoading: false
     property var lastUpdated: null
 
     // Configuration properties
     property string cfg_sessionKey: plasmoid.configuration.sessionKey
+    property string cfg_glmToken: plasmoid.configuration.glmToken
     property int cfg_refreshInterval: plasmoid.configuration.refreshInterval
     property int cfg_warningThreshold: plasmoid.configuration.warningThreshold
     property int cfg_criticalThreshold: plasmoid.configuration.criticalThreshold
+
+    // Derived
+    property bool hasClaudeConfig: cfg_sessionKey !== ""
+    property bool hasGlmConfig: cfg_glmToken !== ""
+    property bool hasAnyConfig: hasClaudeConfig || hasGlmConfig
 
     // ============================================================
     // Timer for periodic refresh
@@ -31,9 +44,9 @@ PlasmoidItem {
     Timer {
         id: refreshTimer
         interval: cfg_refreshInterval * 1000
-        running: cfg_sessionKey !== ""
+        running: hasAnyConfig
         repeat: true
-        onTriggered: fetchUsage()
+        onTriggered: refreshAll()
     }
 
     // Ticks every minute to keep "Updated: Xm ago" text fresh
@@ -83,26 +96,41 @@ PlasmoidItem {
         return "'" + str.replace(/'/g, "'\\''") + "'"
     }
 
-    function curlRequest(url, handler) {
+    function curlRequest(url, handler, opts) {
+        opts = opts || {}
+
         var cmd = "curl -s --max-time 15"
-            + " --cookie " + shellEscape("sessionKey=" + cfg_sessionKey)
-            + " -H 'Accept: application/json'"
-            + " -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'"
-            + " -H 'Referer: https://claude.ai/'"
-            + " -H 'Origin: https://claude.ai'"
-            + " -w '\\n%{http_code}'"
-            + " " + shellEscape(url)
+
+        if (opts.bearerToken) {
+            cmd += " -H 'Authorization: Bearer " + opts.bearerToken + "'"
+        }
+
+        if (opts.cookie) {
+            cmd += " --cookie " + shellEscape(opts.cookie)
+        }
+
+        cmd += " -H 'Accept: application/json'"
+        cmd += " -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'"
+
+        if (opts.headers) {
+            for (var i = 0; i < opts.headers.length; i++) {
+                cmd += " -H " + shellEscape(opts.headers[i])
+            }
+        }
+
+        cmd += " -w '\\n%{http_code}'"
+        cmd += " " + shellEscape(url)
 
         requestHandlers[cmd] = handler
         executable.connectSource(cmd)
     }
 
     // ============================================================
-    // Functions
+    // Claude data fetching
     // ============================================================
 
     function fetchUsage() {
-        if (isLoading || !cfg_sessionKey) return
+        if (!cfg_sessionKey) return
 
         isLoading = true
         lastError = ""
@@ -160,6 +188,9 @@ PlasmoidItem {
                 isLoading = false
                 lastError = "Failed to parse organizations"
             }
+        }, {
+            cookie: "sessionKey=" + cfg_sessionKey,
+            headers: ["Referer: https://claude.ai/", "Origin: https://claude.ai"],
         })
     }
 
@@ -184,6 +215,9 @@ PlasmoidItem {
             } catch (e) {
                 lastError = "Failed to parse usage data"
             }
+        }, {
+            cookie: "sessionKey=" + cfg_sessionKey,
+            headers: ["Referer: https://claude.ai/", "Origin: https://claude.ai"],
         })
     }
 
@@ -195,7 +229,7 @@ PlasmoidItem {
             newData.session = {
                 used: data.five_hour.utilization,
                 resets_at: data.five_hour.resets_at,
-                resets_in: formatTimeRemaining(parseISODate(data.five_hour.resets_at))
+                resets_in: formatTimeRemaining(parseISODate(data.five_hour.resets_at)),
             }
         }
 
@@ -204,12 +238,101 @@ PlasmoidItem {
             newData.weekly = {
                 used: data.seven_day.utilization,
                 resets_at: data.seven_day.resets_at,
-                resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at))
+                resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at)),
             }
         }
 
         usageData = newData
         lastError = ""
+    }
+
+    // ============================================================
+    // GLM data fetching
+    // ============================================================
+
+    function fetchGlmUsage() {
+        if (!cfg_glmToken) return
+
+        isLoading = true
+        glmError = ""
+
+        curlRequest("https://api.z.ai/api/monitor/usage/quota/limit", function(response) {
+            isLoading = false
+
+            if (response.error) {
+                glmError = response.error
+                return
+            }
+
+            if (response.status === 401 || response.status === 403) {
+                glmError = "GLM token expired - update in config"
+                return
+            }
+
+            if (response.status !== 200) {
+                glmError = "Failed to fetch GLM limits: " + response.status
+                return
+            }
+
+            try {
+                var data = JSON.parse(response.body)
+                processGlmData(data)
+                lastUpdated = new Date()
+            } catch (e) {
+                glmError = "Failed to parse GLM data"
+            }
+        }, {
+            bearerToken: cfg_glmToken,
+        })
+    }
+
+    function processGlmData(response) {
+        if (!response.data || !response.data.limits) {
+            glmError = "No limits data found"
+            return
+        }
+
+        var newData = { level: response.data.level || "unknown" }
+
+        for (var i = 0; i < response.data.limits.length; i++) {
+            var limit = response.data.limits[i]
+
+            if (limit.type === "TIME_LIMIT") {
+                newData.timeLimit = {
+                    usage: limit.usage,
+                    currentValue: limit.currentValue,
+                    remaining: limit.remaining,
+                    percentage: limit.percentage,
+                    resetsAt: new Date(limit.nextResetTime),
+                    resetsIn: formatTimeRemaining(new Date(limit.nextResetTime)),
+                    usageDetails: limit.usageDetails || [],
+                }
+            }
+
+            if (limit.type === "TOKENS_LIMIT") {
+                newData.tokensLimit = {
+                    percentage: limit.percentage,
+                    unit: limit.unit,
+                    number: limit.number,
+                    resetsAt: new Date(limit.nextResetTime),
+                    resetsIn: formatTimeRemaining(new Date(limit.nextResetTime)),
+                }
+            }
+        }
+
+        glmUsageData = newData
+        glmError = ""
+    }
+
+    // ============================================================
+    // Shared utilities
+    // ============================================================
+
+    function refreshAll() {
+        if (isLoading) return
+
+        if (hasClaudeConfig) fetchUsage()
+        if (hasGlmConfig) fetchGlmUsage()
     }
 
     function parseISODate(dateStr) {
@@ -261,37 +384,71 @@ PlasmoidItem {
         return Math.floor(diff / 86400) + "d ago"
     }
 
+    function formatToolName(code) {
+        var names = {
+            "search-prime": "Web Search",
+            "web-reader": "Web Reader",
+            "zread": "ZRead",
+        }
+        return names[code] || code
+    }
+
     // ============================================================
     // Tooltip
     // ============================================================
 
-    toolTipMainText: "Claude Code Usage"
+    toolTipMainText: "Subscription Usage"
     toolTipSubText: {
-        if (!cfg_sessionKey) return "Session key not configured"
-        if (lastError) return lastError
-        if (!usageData) return "Loading..."
+        var parts = []
 
-        var text = ""
+        if (hasClaudeConfig && usageData) {
+            if (usageData.session) {
+                var text = "Claude Session: " + Math.round(usageData.session.used) + "%"
+                if (usageData.session.resets_in) text += " - " + usageData.session.resets_in
+                parts.push(text)
+            }
 
-        if (usageData.session) {
-            text += "Session: " + Math.round(usageData.session.used) + "%"
-            if (usageData.session.resets_in) text += " - " + usageData.session.resets_in
+            if (usageData.weekly) {
+                var text = "Claude Weekly: " + Math.round(usageData.weekly.used) + "%"
+                if (usageData.weekly.resets_in) text += " - " + usageData.weekly.resets_in
+                parts.push(text)
+            }
         }
 
-        if (usageData.weekly) {
-            if (text) text += "\n"
-            text += "Weekly: " + Math.round(usageData.weekly.used) + "%"
-            if (usageData.weekly.resets_in) text += " - " + usageData.weekly.resets_in
+        if (hasGlmConfig && glmUsageData) {
+            if (glmUsageData.timeLimit) {
+                var text = "GLM Tools (5h): " + Math.round(glmUsageData.timeLimit.percentage) + "%"
+                if (glmUsageData.timeLimit.resetsIn) text += " - " + glmUsageData.timeLimit.resetsIn
+                parts.push(text)
+            }
+
+            if (glmUsageData.tokensLimit) {
+                parts.push("GLM Tokens: " + Math.round(glmUsageData.tokensLimit.percentage) + "%")
+            }
         }
 
-        return text
+        if (parts.length === 0) {
+            if (!hasAnyConfig) return "No service configured"
+            if (lastError) return lastError
+            if (glmError) return glmError
+            return "Loading..."
+        }
+
+        return parts.join("\n")
     }
 
-    // Watch for session key changes
+    // Watch for configuration changes
     onCfg_sessionKeyChanged: {
         usageData = null
         if (cfg_sessionKey) {
             fetchUsage()
+        }
+    }
+
+    onCfg_glmTokenChanged: {
+        glmUsageData = null
+        if (cfg_glmToken) {
+            fetchGlmUsage()
         }
     }
 
@@ -302,89 +459,170 @@ PlasmoidItem {
     compactRepresentation: PlasmaComponents.AbstractButton {
         id: compactRep
 
-        implicitWidth: Kirigami.Units.gridUnit * 2
+        implicitWidth: {
+            var rings = 0
+            if (hasClaudeConfig) rings++
+            if (hasGlmConfig) rings++
+            if (rings === 0) rings = 1
+            return Kirigami.Units.gridUnit * 2 * rings
+        }
         implicitHeight: Kirigami.Units.gridUnit * 2
 
         onClicked: root.expanded = !root.expanded
 
         PlasmaComponents.BusyIndicator {
             anchors.centerIn: parent
-            running: isLoading && !usageData
-            visible: isLoading && !usageData
+            running: isLoading && !usageData && !glmUsageData
+            visible: isLoading && !usageData && !glmUsageData
             implicitWidth: Kirigami.Units.gridUnit
             implicitHeight: Kirigami.Units.gridUnit
         }
 
-        // Circular progress ring
-        Shape {
-            id: progressRing
-            layer.enabled: true
-            layer.samples: 8
-
-            property real ringSize: Math.min(parent.width, parent.height) - Kirigami.Units.smallSpacing * 2
-            property real ringWidth: ringSize * 0.15
-            property real ringRadius: (ringSize - ringWidth) / 2
-            property real centerXY: ringSize / 2
-
-            property bool hasError: lastError && !usageData
-            property bool isUnconfigured: !cfg_sessionKey
-            property bool hasData: usageData && usageData.session
-            property real sessionUsed: hasData ? usageData.session.used : 0
-
-            property real sweepAngle: {
-                if (isUnconfigured || hasError) return 360
-                if (hasData) return (Math.min(Math.max(sessionUsed, 0), 100) / 100) * 360
-                return 0
-            }
-
-            property color arcColor: {
-                if (isUnconfigured) return Kirigami.Theme.disabledTextColor
-                if (hasError) return Kirigami.Theme.negativeTextColor
-                if (hasData) return getUsageColor(sessionUsed)
-                return Kirigami.Theme.disabledTextColor
-            }
-
+        RowLayout {
             anchors.centerIn: parent
-            width: ringSize
-            height: ringSize
-            visible: !isLoading || usageData
+            spacing: 0
 
-            // Background track
-            ShapePath {
-                fillColor: "transparent"
-                strokeColor: Qt.rgba(
-                    Kirigami.Theme.textColor.r,
-                    Kirigami.Theme.textColor.g,
-                    Kirigami.Theme.textColor.b,
-                    0.15
-                )
-                strokeWidth: progressRing.ringWidth
-                capStyle: ShapePath.RoundCap
+            // Claude ring
+            Shape {
+                id: claudeRing
+                visible: hasClaudeConfig
+                layer.enabled: true
+                layer.samples: 8
 
-                PathAngleArc {
-                    centerX: progressRing.centerXY
-                    centerY: progressRing.centerXY
-                    radiusX: progressRing.ringRadius
-                    radiusY: progressRing.ringRadius
-                    startAngle: -90
-                    sweepAngle: 360
+                property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing * 2
+                property real ringWidth: ringSize * 0.15
+                property real ringRadius: (ringSize - ringWidth) / 2
+                property real centerXY: ringSize / 2
+
+                property bool hasError: lastError && !usageData
+                property bool hasData: usageData && usageData.session
+                property real sessionUsed: hasData ? usageData.session.used : 0
+
+                property real sweepAngle: {
+                    if (hasError) return 360
+                    if (hasData) return (Math.min(Math.max(sessionUsed, 0), 100) / 100) * 360
+                    return 0
+                }
+
+                property color arcColor: {
+                    if (hasError) return Kirigami.Theme.negativeTextColor
+                    if (hasData) return getUsageColor(sessionUsed)
+                    return Kirigami.Theme.disabledTextColor
+                }
+
+                width: ringSize
+                height: ringSize
+                visible: hasClaudeConfig && (!isLoading || usageData)
+
+                // Background track
+                ShapePath {
+                    fillColor: "transparent"
+                    strokeColor: Qt.rgba(
+                        Kirigami.Theme.textColor.r,
+                        Kirigami.Theme.textColor.g,
+                        Kirigami.Theme.textColor.b,
+                        0.15
+                    )
+                    strokeWidth: claudeRing.ringWidth
+                    capStyle: ShapePath.RoundCap
+
+                    PathAngleArc {
+                        centerX: claudeRing.centerXY
+                        centerY: claudeRing.centerXY
+                        radiusX: claudeRing.ringRadius
+                        radiusY: claudeRing.ringRadius
+                        startAngle: -90
+                        sweepAngle: 360
+                    }
+                }
+
+                // Foreground progress arc
+                ShapePath {
+                    fillColor: "transparent"
+                    strokeColor: claudeRing.arcColor
+                    strokeWidth: claudeRing.ringWidth
+                    capStyle: ShapePath.RoundCap
+
+                    PathAngleArc {
+                        centerX: claudeRing.centerXY
+                        centerY: claudeRing.centerXY
+                        radiusX: claudeRing.ringRadius
+                        radiusY: claudeRing.ringRadius
+                        startAngle: -90
+                        sweepAngle: claudeRing.sweepAngle
+                    }
                 }
             }
 
-            // Foreground progress arc
-            ShapePath {
-                fillColor: "transparent"
-                strokeColor: progressRing.arcColor
-                strokeWidth: progressRing.ringWidth
-                capStyle: ShapePath.RoundCap
+            // GLM ring
+            Shape {
+                id: glmRing
+                visible: hasGlmConfig
+                layer.enabled: true
+                layer.samples: 8
 
-                PathAngleArc {
-                    centerX: progressRing.centerXY
-                    centerY: progressRing.centerXY
-                    radiusX: progressRing.ringRadius
-                    radiusY: progressRing.ringRadius
-                    startAngle: -90
-                    sweepAngle: progressRing.sweepAngle
+                property real ringSize: Math.min(compactRep.height, compactRep.width / (hasClaudeConfig && hasGlmConfig ? 2 : 1)) - Kirigami.Units.smallSpacing * 2
+                property real ringWidth: ringSize * 0.15
+                property real ringRadius: (ringSize - ringWidth) / 2
+                property real centerXY: ringSize / 2
+
+                property bool hasError: glmError && !glmUsageData
+                property bool hasData: glmUsageData && glmUsageData.timeLimit
+                property real usedPercentage: hasData ? glmUsageData.timeLimit.percentage : 0
+
+                property real sweepAngle: {
+                    if (hasError) return 360
+                    if (hasData) return (Math.min(Math.max(usedPercentage, 0), 100) / 100) * 360
+                    return 0
+                }
+
+                property color arcColor: {
+                    if (hasError) return Kirigami.Theme.negativeTextColor
+                    if (hasData) return getUsageColor(usedPercentage)
+                    return Kirigami.Theme.disabledTextColor
+                }
+
+                width: ringSize
+                height: ringSize
+                visible: hasGlmConfig && (!isLoading || glmUsageData)
+
+                // Background track
+                ShapePath {
+                    fillColor: "transparent"
+                    strokeColor: Qt.rgba(
+                        Kirigami.Theme.textColor.r,
+                        Kirigami.Theme.textColor.g,
+                        Kirigami.Theme.textColor.b,
+                        0.15
+                    )
+                    strokeWidth: glmRing.ringWidth
+                    capStyle: ShapePath.RoundCap
+
+                    PathAngleArc {
+                        centerX: glmRing.centerXY
+                        centerY: glmRing.centerXY
+                        radiusX: glmRing.ringRadius
+                        radiusY: glmRing.ringRadius
+                        startAngle: -90
+                        sweepAngle: 360
+                    }
+                }
+
+                // Foreground progress arc
+                ShapePath {
+                    fillColor: "transparent"
+                    strokeColor: glmRing.arcColor
+                    strokeWidth: glmRing.ringWidth
+                    capStyle: ShapePath.RoundCap
+
+                    PathAngleArc {
+                        centerX: glmRing.centerXY
+                        centerY: glmRing.centerXY
+                        radiusX: glmRing.ringRadius
+                        radiusY: glmRing.ringRadius
+                        startAngle: -90
+                        sweepAngle: glmRing.sweepAngle
+                    }
                 }
             }
         }
@@ -406,7 +644,7 @@ PlasmoidItem {
             Layout.bottomMargin: Kirigami.Units.smallSpacing
 
             PlasmaComponents.Label {
-                text: "Claude Code Usage"
+                text: "Subscription Usage"
                 font.bold: true
                 font.pixelSize: Kirigami.Units.gridUnit * 1.1
                 Layout.fillWidth: true
@@ -415,8 +653,8 @@ PlasmoidItem {
             PlasmaComponents.ToolButton {
                 icon.name: "view-refresh"
                 display: PlasmaComponents.AbstractButton.IconOnly
-                onClicked: fetchUsage()
-                enabled: !isLoading && cfg_sessionKey !== ""
+                onClicked: refreshAll()
+                enabled: !isLoading && hasAnyConfig
                 PlasmaComponents.ToolTip.text: "Refresh"
                 PlasmaComponents.ToolTip.visible: hovered
             }
@@ -430,9 +668,9 @@ PlasmoidItem {
             }
         }
 
-        // No session key configured
+        // Neither configured message
         ColumnLayout {
-            visible: !cfg_sessionKey
+            visible: !hasAnyConfig
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Kirigami.Units.smallSpacing
@@ -447,13 +685,13 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                text: "Configure your session key"
+                text: "Configure at least one service"
                 font.bold: true
                 Layout.alignment: Qt.AlignHCenter
             }
 
             PlasmaComponents.Label {
-                text: "1. Go to claude.ai and login\n2. Open DevTools (F12)\n3. Application → Cookies\n4. Copy 'sessionKey' value\n5. Click configure button above"
+                text: "Click the configure button to add\nyour Claude session key or GLM token"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
                 Layout.fillWidth: true
@@ -466,133 +704,354 @@ PlasmoidItem {
             Item { Layout.fillHeight: true }
         }
 
-        // Error state
-        PlasmaComponents.Label {
-            visible: cfg_sessionKey && lastError !== "" && !usageData
-            text: lastError
-            color: Kirigami.Theme.negativeTextColor
-            wrapMode: Text.WordWrap
+        // ============================================================
+        // Claude section
+        // ============================================================
+
+        ColumnLayout {
+            visible: hasClaudeConfig
             Layout.fillWidth: true
-            horizontalAlignment: Text.AlignHCenter
-            Layout.topMargin: Kirigami.Units.largeSpacing
-            Layout.bottomMargin: Kirigami.Units.largeSpacing
+            spacing: 0
+
+            // Section title
+            PlasmaComponents.Label {
+                text: "Claude"
+                font.bold: true
+                font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+            }
+
+            // Unconfigured
+            ColumnLayout {
+                visible: !hasClaudeConfig
+                Layout.fillWidth: true
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Configure your session key in settings"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                    Layout.alignment: Qt.AlignHCenter
+                }
+            }
+
+            // Error state
+            PlasmaComponents.Label {
+                visible: hasClaudeConfig && lastError !== "" && !usageData
+                text: lastError
+                color: Kirigami.Theme.negativeTextColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+            }
+
+            // Session usage
+            ColumnLayout {
+                visible: usageData && usageData.session
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Session (5h window)"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+
+                        property real progressValue: usageData && usageData.session ? usageData.session.used : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: usageData && usageData.session
+                                ? getUsageColor(usageData.session.used)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: usageData && usageData.session
+                            ? Math.round(usageData.session.used) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: usageData && usageData.session ? usageData.session.resets_in : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
+            }
+
+            // Weekly usage
+            ColumnLayout {
+                visible: usageData && usageData.weekly
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Weekly (7 day window)"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+
+                        property real progressValue: usageData && usageData.weekly ? usageData.weekly.used : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: usageData && usageData.weekly
+                                ? getUsageColor(usageData.weekly.used)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: usageData && usageData.weekly
+                            ? Math.round(usageData.weekly.used) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: usageData && usageData.weekly ? usageData.weekly.resets_in : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
+            }
         }
 
-        // Session usage
-        ColumnLayout {
-            visible: usageData && usageData.session
+        // Separator between sections
+        Kirigami.Separator {
+            visible: hasClaudeConfig && hasGlmConfig
             Layout.fillWidth: true
-            Layout.leftMargin: Kirigami.Units.smallSpacing
-            Layout.rightMargin: Kirigami.Units.smallSpacing
             Layout.topMargin: Kirigami.Units.smallSpacing
-            spacing: Kirigami.Units.smallSpacing
-
-            PlasmaComponents.Label {
-                text: "Session (5h window)"
-                font.pixelSize: Kirigami.Units.gridUnit * 0.9
-            }
-
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Kirigami.Units.smallSpacing
-
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: Kirigami.Units.gridUnit * 0.4
-                    radius: height / 2
-                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
-
-                    property real progressValue: usageData && usageData.session ? usageData.session.used : 0
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
-                        radius: parent.radius
-                        color: usageData && usageData.session
-                            ? getUsageColor(usageData.session.used)
-                            : Kirigami.Theme.highlightColor
-
-                        Behavior on width {
-                            NumberAnimation { duration: 200 }
-                        }
-                    }
-                }
-
-                PlasmaComponents.Label {
-                    text: usageData && usageData.session
-                        ? Math.round(usageData.session.used) + "%"
-                        : "0%"
-                    font.bold: true
-                    Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-                    horizontalAlignment: Text.AlignRight
-                }
-            }
-
-            PlasmaComponents.Label {
-                text: usageData && usageData.session ? usageData.session.resets_in : ""
-                font.pixelSize: Kirigami.Units.gridUnit * 0.8
-                color: Kirigami.Theme.disabledTextColor
-            }
+            Layout.bottomMargin: Kirigami.Units.smallSpacing
         }
 
-        // Weekly usage
-        ColumnLayout {
-            visible: usageData && usageData.weekly
-            Layout.fillWidth: true
-            Layout.leftMargin: Kirigami.Units.smallSpacing
-            Layout.rightMargin: Kirigami.Units.smallSpacing
-            Layout.topMargin: Kirigami.Units.largeSpacing
-            spacing: Kirigami.Units.smallSpacing
+        // ============================================================
+        // GLM section
+        // ============================================================
 
+        ColumnLayout {
+            visible: hasGlmConfig
+            Layout.fillWidth: true
+            spacing: 0
+
+            // Section title
             PlasmaComponents.Label {
-                text: "Weekly (7 day window)"
+                text: "GLM"
+                font.bold: true
                 font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                Layout.leftMargin: Kirigami.Units.smallSpacing
             }
 
-            RowLayout {
+            // Error state
+            PlasmaComponents.Label {
+                visible: hasGlmConfig && glmError !== "" && !glmUsageData
+                text: glmError
+                color: Kirigami.Theme.negativeTextColor
+                wrapMode: Text.WordWrap
                 Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+            }
+
+            // TIME_LIMIT (5h window) - progress bar
+            ColumnLayout {
+                visible: glmUsageData && glmUsageData.timeLimit
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
                 spacing: Kirigami.Units.smallSpacing
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    implicitHeight: Kirigami.Units.gridUnit * 0.4
-                    radius: height / 2
-                    color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+                PlasmaComponents.Label {
+                    text: "Tool Usage (5h window)"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
 
-                    property real progressValue: usageData && usageData.weekly ? usageData.weekly.used : 0
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
 
                     Rectangle {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
-                        radius: parent.radius
-                        color: usageData && usageData.weekly
-                            ? getUsageColor(usageData.weekly.used)
-                            : Kirigami.Theme.highlightColor
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
 
-                        Behavior on width {
-                            NumberAnimation { duration: 200 }
+                        property real progressValue: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.percentage : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: glmUsageData && glmUsageData.timeLimit
+                                ? getUsageColor(glmUsageData.timeLimit.percentage)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
                         }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: glmUsageData && glmUsageData.timeLimit
+                            ? Math.round(glmUsageData.timeLimit.percentage) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
                     }
                 }
 
                 PlasmaComponents.Label {
-                    text: usageData && usageData.weekly
-                        ? Math.round(usageData.weekly.used) + "%"
-                        : "0%"
-                    font.bold: true
-                    Layout.minimumWidth: Kirigami.Units.gridUnit * 2
-                    horizontalAlignment: Text.AlignRight
+                    text: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.resetsIn : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
+
+                // Usage details per tool
+                ColumnLayout {
+                    visible: glmUsageData && glmUsageData.timeLimit && glmUsageData.timeLimit.usageDetails.length > 0
+                    Layout.fillWidth: true
+                    Layout.topMargin: Kirigami.Units.smallSpacing
+                    spacing: 2
+
+                    Repeater {
+                        model: glmUsageData && glmUsageData.timeLimit ? glmUsageData.timeLimit.usageDetails : []
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.smallSpacing
+
+                            PlasmaComponents.Label {
+                                text: formatToolName(model.modelData.modelCode)
+                                font.pixelSize: Kirigami.Units.gridUnit * 0.75
+                                color: Kirigami.Theme.disabledTextColor
+                                Layout.fillWidth: true
+                            }
+
+                            PlasmaComponents.Label {
+                                text: model.modelData.usage
+                                font.pixelSize: Kirigami.Units.gridUnit * 0.75
+                                font.bold: true
+                            }
+                        }
+                    }
                 }
             }
 
-            PlasmaComponents.Label {
-                text: usageData && usageData.weekly ? usageData.weekly.resets_in : ""
-                font.pixelSize: Kirigami.Units.gridUnit * 0.8
-                color: Kirigami.Theme.disabledTextColor
+            // TOKENS_LIMIT (monthly) - progress bar
+            ColumnLayout {
+                visible: glmUsageData && glmUsageData.tokensLimit
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Monthly Token Quota"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+
+                        property real progressValue: glmUsageData && glmUsageData.tokensLimit ? glmUsageData.tokensLimit.percentage : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: glmUsageData && glmUsageData.tokensLimit
+                                ? getUsageColor(glmUsageData.tokensLimit.percentage)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: glmUsageData && glmUsageData.tokensLimit
+                            ? Math.round(glmUsageData.tokensLimit.percentage) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: glmUsageData && glmUsageData.tokensLimit ? glmUsageData.tokensLimit.resetsIn : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
             }
         }
 
@@ -602,7 +1061,7 @@ PlasmoidItem {
             Layout.leftMargin: Kirigami.Units.smallSpacing
             Layout.rightMargin: Kirigami.Units.smallSpacing
             Layout.topMargin: Kirigami.Units.largeSpacing
-            text: cfg_sessionKey ? "Updated: " + formatTimeSince(lastUpdated, timeTick) : ""
+            text: hasAnyConfig ? "Updated: " + formatTimeSince(lastUpdated, timeTick) : ""
             font.pixelSize: Kirigami.Units.gridUnit * 0.7
             color: Kirigami.Theme.disabledTextColor
             horizontalAlignment: Text.AlignRight
@@ -614,8 +1073,7 @@ PlasmoidItem {
     // ============================================================
 
     Component.onCompleted: {
-        if (cfg_sessionKey) {
-            fetchUsage()
-        }
+        if (hasClaudeConfig) fetchUsage()
+        if (hasGlmConfig) fetchGlmUsage()
     }
 }

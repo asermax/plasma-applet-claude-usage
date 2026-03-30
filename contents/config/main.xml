@@ -36,6 +36,12 @@
             <label>Session Key</label>
             <whatsthis>The sessionKey cookie value from claude.ai (found in browser DevTools → Application → Cookies)</whatsthis>
         </entry>
+
+        <entry name="glmToken" type="String">
+            <default></default>
+            <label>GLM Token</label>
+            <whatsthis>The open platform token from z.ai (found in browser DevTools → Application → Local Storage → z-ai-open-platform-token-production)</whatsthis>
+        </entry>
     </group>
 
 </kcfg>
