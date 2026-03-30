@@ -485,7 +485,6 @@ PlasmoidItem {
             // Claude ring
             Shape {
                 id: claudeRing
-                visible: hasClaudeConfig
                 layer.enabled: true
                 layer.samples: 8
 
@@ -557,7 +556,6 @@ PlasmoidItem {
             // GLM ring
             Shape {
                 id: glmRing
-                visible: hasGlmConfig
                 layer.enabled: true
                 layer.samples: 8
 
