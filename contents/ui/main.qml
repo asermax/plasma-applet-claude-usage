@@ -96,8 +96,21 @@ PlasmoidItem {
         return "'" + str.replace(/'/g, "'\\''") + "'"
     }
 
+    function scheduleRetry(delayMs, callback) {
+        var timer = Qt.createQmlObject('import QtQuick; Timer { repeat: false }', root)
+        timer.interval = delayMs
+        timer.triggered.connect(function() {
+            timer.destroy()
+            callback()
+        })
+        timer.start()
+    }
+
     function curlRequest(url, handler, opts) {
         opts = opts || {}
+
+        var maxAttempts = opts.maxAttempts || 3
+        var retryDelayMs = opts.retryDelayMs || 2000
 
         var cmd = "curl -s --max-time 15"
 
@@ -121,8 +134,21 @@ PlasmoidItem {
         cmd += " -w '\\n%{http_code}'"
         cmd += " " + shellEscape(url)
 
-        requestHandlers[cmd] = handler
-        executable.connectSource(cmd)
+        function attempt(n) {
+            requestHandlers[cmd] = function(response) {
+                var isRetryable = response.error || (response.status >= 500)
+
+                if (isRetryable && n < maxAttempts) {
+                    scheduleRetry(retryDelayMs, function() { attempt(n + 1) })
+                    return
+                }
+
+                handler(response)
+            }
+            executable.connectSource(cmd)
+        }
+
+        attempt(1)
     }
 
     // ============================================================
