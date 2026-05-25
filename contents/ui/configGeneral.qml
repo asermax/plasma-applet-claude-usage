@@ -9,6 +9,7 @@ Kirigami.FormLayout {
 
     property alias cfg_sessionKey: sessionKeyField.text
     property alias cfg_glmToken: glmTokenField.text
+    property alias cfg_codexToken: codexTokenField.text
     property alias cfg_refreshInterval: refreshIntervalSpinBox.value
     property alias cfg_warningThreshold: warningThresholdSpinBox.value
     property alias cfg_criticalThreshold: criticalThresholdSpinBox.value
@@ -51,6 +52,28 @@ Kirigami.FormLayout {
     PlasmaComponents.Label {
         Layout.fillWidth: true
         text: i18n("To get your GLM token:\n1. Go to z.ai in your browser and login\n2. Open DevTools (F12) → Application → Local Storage\n3. Select z.ai → Copy 'z-ai-open-platform-token-production' value")
+        font: Kirigami.Theme.smallFont
+        color: Kirigami.Theme.disabledTextColor
+        wrapMode: Text.WordWrap
+        Layout.topMargin: Kirigami.Units.smallSpacing
+    }
+
+    Kirigami.Separator {
+        Kirigami.FormData.isSection: true
+        Kirigami.FormData.label: i18n("Codex Authentication (OpenAI)")
+    }
+
+    TextField {
+        id: codexTokenField
+        Kirigami.FormData.label: i18n("Codex Token (optional):")
+        placeholderText: i18n("Leave empty to auto-detect from ~/.codex/auth.json")
+        echoMode: TextInput.Password
+        Layout.fillWidth: true
+    }
+
+    PlasmaComponents.Label {
+        Layout.fillWidth: true
+        text: i18n("The Codex token is loaded automatically from ~/.codex/auth.json\nif you have the Codex CLI installed and are logged in.\nRun 'codex' in your terminal to set up authentication.\n\nTo manually override, paste your Codex OAuth access token above.\nFind it in ~/.codex/auth.json → tokens.access_token")
         font: Kirigami.Theme.smallFont
         color: Kirigami.Theme.disabledTextColor
         wrapMode: Text.WordWrap

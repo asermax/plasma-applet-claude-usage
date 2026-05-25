@@ -7,7 +7,7 @@
             }
         ],
         "Category": "System Information",
-        "Description": "Displays Claude Code usage statistics in the system tray",
+        "Description": "Displays AI coding assistant usage statistics in the system tray (Claude, GLM, Codex/OpenAI)",
         "Icon": "view-statistics",
         "Id": "com.github.claude-usage",
         "Name": "Claude Code Usage",

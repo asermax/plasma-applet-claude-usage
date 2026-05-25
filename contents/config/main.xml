@@ -42,6 +42,12 @@
             <label>GLM Token</label>
             <whatsthis>The open platform token from z.ai (found in browser DevTools → Application → Local Storage → z-ai-open-platform-token-production)</whatsthis>
         </entry>
+
+        <entry name="codexToken" type="String">
+            <default></default>
+            <label>Codex Token (optional override)</label>
+            <whatsthis>Optional manual override for the Codex OAuth token. If empty, the token is loaded automatically from ~/.codex/auth.json (when the Codex CLI is installed and logged in).</whatsthis>
+        </entry>
     </group>
 
 </kcfg>
