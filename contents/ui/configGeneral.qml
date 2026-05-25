@@ -4,111 +4,115 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import org.kde.plasma.components as PlasmaComponents
 
-Kirigami.FormLayout {
-    id: configPage
+PlasmaComponents.ScrollView {
+    id: scrollView
 
-    property alias cfg_sessionKey: sessionKeyField.text
-    property alias cfg_glmToken: glmTokenField.text
-    property alias cfg_codexToken: codexTokenField.text
-    property alias cfg_refreshInterval: refreshIntervalSpinBox.value
-    property alias cfg_warningThreshold: warningThresholdSpinBox.value
-    property alias cfg_criticalThreshold: criticalThresholdSpinBox.value
+    Kirigami.FormLayout {
+        id: configPage
 
-    Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: i18n("Claude Authentication")
-    }
+        property alias cfg_sessionKey: sessionKeyField.text
+        property alias cfg_glmToken: glmTokenField.text
+        property alias cfg_codexToken: codexTokenField.text
+        property alias cfg_refreshInterval: refreshIntervalSpinBox.value
+        property alias cfg_warningThreshold: warningThresholdSpinBox.value
+        property alias cfg_criticalThreshold: criticalThresholdSpinBox.value
 
-    TextField {
-        id: sessionKeyField
-        Kirigami.FormData.label: i18n("Session Key:")
-        placeholderText: i18n("Paste your claude.ai sessionKey cookie here")
-        echoMode: TextInput.Password
-        Layout.fillWidth: true
-    }
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Claude Authentication")
+        }
 
-    PlasmaComponents.Label {
-        Layout.fillWidth: true
-        text: i18n("To get your session key:\n1. Go to claude.ai in your browser and login\n2. Open DevTools (F12) → Application → Cookies\n3. Copy the 'sessionKey' value")
-        font: Kirigami.Theme.smallFont
-        color: Kirigami.Theme.disabledTextColor
-        wrapMode: Text.WordWrap
-        Layout.topMargin: Kirigami.Units.smallSpacing
-    }
+        TextField {
+            id: sessionKeyField
+            Kirigami.FormData.label: i18n("Session Key:")
+            placeholderText: i18n("Paste your claude.ai sessionKey cookie here")
+            echoMode: TextInput.Password
+            Layout.fillWidth: true
+        }
 
-    Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: i18n("GLM Authentication")
-    }
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            text: i18n("To get your session key:\n1. Go to claude.ai in your browser and login\n2. Open DevTools (F12) → Application → Cookies\n3. Copy the 'sessionKey' value")
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
+            wrapMode: Text.WordWrap
+            Layout.topMargin: Kirigami.Units.smallSpacing
+        }
 
-    TextField {
-        id: glmTokenField
-        Kirigami.FormData.label: i18n("GLM Token:")
-        placeholderText: i18n("Paste your z.ai open platform token here")
-        echoMode: TextInput.Password
-        Layout.fillWidth: true
-    }
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("GLM Authentication")
+        }
 
-    PlasmaComponents.Label {
-        Layout.fillWidth: true
-        text: i18n("To get your GLM token:\n1. Go to z.ai in your browser and login\n2. Open DevTools (F12) → Application → Local Storage\n3. Select z.ai → Copy 'z-ai-open-platform-token-production' value")
-        font: Kirigami.Theme.smallFont
-        color: Kirigami.Theme.disabledTextColor
-        wrapMode: Text.WordWrap
-        Layout.topMargin: Kirigami.Units.smallSpacing
-    }
+        TextField {
+            id: glmTokenField
+            Kirigami.FormData.label: i18n("GLM Token:")
+            placeholderText: i18n("Paste your z.ai open platform token here")
+            echoMode: TextInput.Password
+            Layout.fillWidth: true
+        }
 
-    Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: i18n("Codex Authentication (OpenAI)")
-    }
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            text: i18n("To get your GLM token:\n1. Go to z.ai in your browser and login\n2. Open DevTools (F12) → Application → Local Storage\n3. Select z.ai → Copy 'z-ai-open-platform-token-production' value")
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
+            wrapMode: Text.WordWrap
+            Layout.topMargin: Kirigami.Units.smallSpacing
+        }
 
-    TextField {
-        id: codexTokenField
-        Kirigami.FormData.label: i18n("Codex Token (optional):")
-        placeholderText: i18n("Leave empty to auto-detect from ~/.codex/auth.json")
-        echoMode: TextInput.Password
-        Layout.fillWidth: true
-    }
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Codex Authentication (OpenAI)")
+        }
 
-    PlasmaComponents.Label {
-        Layout.fillWidth: true
-        text: i18n("The Codex token is loaded automatically from ~/.codex/auth.json\nif you have the Codex CLI installed and are logged in.\nRun 'codex' in your terminal to set up authentication.\n\nTo manually override, paste your Codex OAuth access token above.\nFind it in ~/.codex/auth.json → tokens.access_token")
-        font: Kirigami.Theme.smallFont
-        color: Kirigami.Theme.disabledTextColor
-        wrapMode: Text.WordWrap
-        Layout.topMargin: Kirigami.Units.smallSpacing
-    }
+        TextField {
+            id: codexTokenField
+            Kirigami.FormData.label: i18n("Codex Token (optional):")
+            placeholderText: i18n("Leave empty to auto-detect from ~/.codex/auth.json")
+            echoMode: TextInput.Password
+            Layout.fillWidth: true
+        }
 
-    Kirigami.Separator {
-        Kirigami.FormData.isSection: true
-        Kirigami.FormData.label: i18n("Display Options")
-    }
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            text: i18n("The Codex token is loaded automatically from ~/.codex/auth.json\nif you have the Codex CLI installed and are logged in.\nRun 'codex' in your terminal to set up authentication.\n\nTo manually override, paste your Codex OAuth access token above.\nFind it in ~/.codex/auth.json → tokens.access_token")
+            font: Kirigami.Theme.smallFont
+            color: Kirigami.Theme.disabledTextColor
+            wrapMode: Text.WordWrap
+            Layout.topMargin: Kirigami.Units.smallSpacing
+        }
 
-    SpinBox {
-        id: refreshIntervalSpinBox
-        Kirigami.FormData.label: i18n("Refresh interval (seconds):")
-        from: 60
-        to: 3600
-        stepSize: 60
-        editable: true
-    }
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Display Options")
+        }
 
-    SpinBox {
-        id: warningThresholdSpinBox
-        Kirigami.FormData.label: i18n("Warning threshold (%):")
-        from: 0
-        to: 100
-        stepSize: 5
-        editable: true
-    }
+        SpinBox {
+            id: refreshIntervalSpinBox
+            Kirigami.FormData.label: i18n("Refresh interval (seconds):")
+            from: 60
+            to: 3600
+            stepSize: 60
+            editable: true
+        }
 
-    SpinBox {
-        id: criticalThresholdSpinBox
-        Kirigami.FormData.label: i18n("Critical threshold (%):")
-        from: 0
-        to: 100
-        stepSize: 5
-        editable: true
+        SpinBox {
+            id: warningThresholdSpinBox
+            Kirigami.FormData.label: i18n("Warning threshold (%):")
+            from: 0
+            to: 100
+            stepSize: 5
+            editable: true
+        }
+
+        SpinBox {
+            id: criticalThresholdSpinBox
+            Kirigami.FormData.label: i18n("Critical threshold (%):")
+            from: 0
+            to: 100
+            stepSize: 5
+            editable: true
+        }
     }
 }

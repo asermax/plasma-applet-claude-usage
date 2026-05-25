@@ -178,7 +178,7 @@ PlasmoidItem {
         var script = "import json,os; p=os.path.expanduser('~/.codex/auth.json'); d=json.load(open(p)); t=d.get('OPENAI_API_KEY','') or d.get('tokens',{}).get('access_token','') or d.get('tokens',{}).get('accessToken',''); print(t); print(0)"
         var cmd = "python3 -c " + shellEscape(script) + " 2>/dev/null"
 
-        requestHandlers["codex-auth"] = function(response) {
+        requestHandlers[cmd] = function(response) {
             codexAuthLoading = false
 
             if (response.error) {
