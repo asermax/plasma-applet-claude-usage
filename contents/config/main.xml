@@ -7,6 +7,21 @@
     <kcfgfile name=""/>
 
     <group name="General">
+        <entry name="claudeEnabled" type="Bool">
+            <default>true</default>
+            <label>Enable Claude tracking</label>
+        </entry>
+
+        <entry name="glmEnabled" type="Bool">
+            <default>true</default>
+            <label>Enable GLM tracking</label>
+        </entry>
+
+        <entry name="codexEnabled" type="Bool">
+            <default>true</default>
+            <label>Enable Codex tracking</label>
+        </entry>
+
         <entry name="refreshInterval" type="Int">
             <default>300</default>
             <label>Refresh interval in seconds</label>

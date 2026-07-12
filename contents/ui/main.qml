@@ -32,6 +32,9 @@ PlasmoidItem {
     property var lastUpdated: null
 
     // Configuration properties
+    property bool cfg_claudeEnabled: plasmoid.configuration.claudeEnabled
+    property bool cfg_glmEnabled: plasmoid.configuration.glmEnabled
+    property bool cfg_codexEnabled: plasmoid.configuration.codexEnabled
     property string cfg_sessionKey: plasmoid.configuration.sessionKey
     property string cfg_glmToken: plasmoid.configuration.glmToken
     property string cfg_codexToken: plasmoid.configuration.codexToken
@@ -40,9 +43,9 @@ PlasmoidItem {
     property int cfg_criticalThreshold: plasmoid.configuration.criticalThreshold
 
     // Derived
-    property bool hasClaudeConfig: cfg_sessionKey !== ""
-    property bool hasGlmConfig: cfg_glmToken !== ""
-    property bool hasCodexConfig: resolvedCodexToken !== ""
+    property bool hasClaudeConfig: cfg_claudeEnabled && cfg_sessionKey !== ""
+    property bool hasGlmConfig: cfg_glmEnabled && cfg_glmToken !== ""
+    property bool hasCodexConfig: cfg_codexEnabled && resolvedCodexToken !== ""
     property bool hasAnyConfig: hasClaudeConfig || hasGlmConfig || hasCodexConfig
 
     // ============================================================
@@ -164,6 +167,8 @@ PlasmoidItem {
     // ============================================================
 
     function resolveCodexToken() {
+        if (!cfg_codexEnabled) return
+
         // If user set a manual token in config, use it
         if (cfg_codexToken !== "") {
             resolvedCodexToken = cfg_codexToken
@@ -201,7 +206,7 @@ PlasmoidItem {
     // ============================================================
 
     function fetchUsage() {
-        if (!cfg_sessionKey) return
+        if (!cfg_claudeEnabled || !cfg_sessionKey) return
 
         isLoading = true
         lastError = ""
@@ -322,7 +327,7 @@ PlasmoidItem {
     // ============================================================
 
     function fetchGlmUsage() {
-        if (!cfg_glmToken) return
+        if (!cfg_glmEnabled || !cfg_glmToken) return
 
         isLoading = true
         glmError = ""
@@ -400,7 +405,7 @@ PlasmoidItem {
     // ============================================================
 
     function fetchCodexUsage() {
-        if (!resolvedCodexToken) return
+        if (!cfg_codexEnabled || !resolvedCodexToken) return
 
         isLoading = true
         codexError = ""
@@ -605,6 +610,21 @@ PlasmoidItem {
     }
 
     // Watch for configuration changes
+    onCfg_claudeEnabledChanged: {
+        if (cfg_claudeEnabled) fetchUsage()
+        else usageData = null
+    }
+
+    onCfg_glmEnabledChanged: {
+        if (cfg_glmEnabled) fetchGlmUsage()
+        else glmUsageData = null
+    }
+
+    onCfg_codexEnabledChanged: {
+        if (cfg_codexEnabled) resolveCodexToken()
+        else codexUsageData = null
+    }
+
     onCfg_sessionKeyChanged: {
         usageData = null
         if (cfg_sessionKey) {
