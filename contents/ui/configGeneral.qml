@@ -15,9 +15,6 @@ PlasmaComponents.ScrollView {
 
         width: scrollView.availableWidth
 
-        property alias cfg_claudeEnabled: claudeEnabledSwitch.checked
-        property alias cfg_glmEnabled: glmEnabledSwitch.checked
-        property alias cfg_codexEnabled: codexEnabledSwitch.checked
         property alias cfg_sessionKey: sessionKeyField.text
         property alias cfg_glmToken: glmTokenField.text
         property alias cfg_codexToken: codexTokenField.text
@@ -33,6 +30,8 @@ PlasmaComponents.ScrollView {
         Switch {
             id: claudeEnabledSwitch
             Kirigami.FormData.label: i18n("Enabled:")
+            checked: plasmoid.configuration.claudeEnabled
+            onToggled: plasmoid.configuration.claudeEnabled = checked
         }
 
         TextField {
@@ -60,6 +59,8 @@ PlasmaComponents.ScrollView {
         Switch {
             id: glmEnabledSwitch
             Kirigami.FormData.label: i18n("Enabled:")
+            checked: plasmoid.configuration.glmEnabled
+            onToggled: plasmoid.configuration.glmEnabled = checked
         }
 
         TextField {
@@ -87,6 +88,8 @@ PlasmaComponents.ScrollView {
         Switch {
             id: codexEnabledSwitch
             Kirigami.FormData.label: i18n("Enabled:")
+            checked: plasmoid.configuration.codexEnabled
+            onToggled: plasmoid.configuration.codexEnabled = checked
         }
 
         TextField {
