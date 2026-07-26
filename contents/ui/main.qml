@@ -103,8 +103,23 @@ PlasmoidItem {
 
     property var requestHandlers: ({})
 
+    // Expanded by the shell at run time: the executable data engine runs commands via
+    // KProcess::setShellCommand, so $HOME resolves and the source name stays constant.
+    readonly property string cacheDirExpr: "\"$HOME/.cache/plasma-claude-usage\""
+
     function shellEscape(str) {
         return "'" + str.replace(/'/g, "'\\''") + "'"
+    }
+
+    function cookieJarExpr(name) {
+        return "\"$HOME/.cache/plasma-claude-usage/cookies-" + name + ".txt\""
+    }
+
+    // Cloudflare serves an HTML interstitial under a 403/503 to clients it has not vetted.
+    // That is not an authentication failure and must not be reported as an expired session.
+    function isCloudflareChallenge(response) {
+        return (response.status === 403 || response.status === 503)
+            && /just a moment|challenge-platform|cf-browser-verification|cf_chl/i.test(response.body || "")
     }
 
     function scheduleRetry(delayMs, callback) {
@@ -123,7 +138,7 @@ PlasmoidItem {
         var maxAttempts = opts.maxAttempts || 3
         var retryDelayMs = opts.retryDelayMs || 2000
 
-        var cmd = "curl -s --max-time 15"
+        var cmd = "curl -s --max-time 15 --compressed"
 
         if (opts.bearerToken) {
             cmd += " -H 'Authorization: Bearer " + opts.bearerToken + "'"
@@ -133,8 +148,19 @@ PlasmoidItem {
             cmd += " --cookie " + shellEscape(opts.cookie)
         }
 
+        // Cloudflare hands out a __cf_bm bot-management cookie on every response. Unless it
+        // is stored and replayed, each request looks like a brand-new unvetted client and
+        // roughly one in six comes back as a 403 challenge page instead of data.
+        if (opts.cookieJar) {
+            cmd += " -b " + cookieJarExpr(opts.cookieJar) + " -c " + cookieJarExpr(opts.cookieJar)
+        }
+
         cmd += " -H 'Accept: application/json'"
+        cmd += " -H 'Accept-Language: en-US,en;q=0.9'"
         cmd += " -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'"
+        cmd += " -H 'Sec-Fetch-Site: same-origin'"
+        cmd += " -H 'Sec-Fetch-Mode: cors'"
+        cmd += " -H 'Sec-Fetch-Dest: empty'"
 
         if (opts.headers) {
             for (var i = 0; i < opts.headers.length; i++) {
@@ -145,9 +171,17 @@ PlasmoidItem {
         cmd += " -w '\\n%{http_code}'"
         cmd += " " + shellEscape(url)
 
+        if (opts.cookieJar) {
+            cmd = "mkdir -p " + cacheDirExpr + " && " + cmd
+        }
+
         function attempt(n) {
             requestHandlers[cmd] = function(response) {
-                var isRetryable = response.error || (response.status >= 500)
+                response.challenge = isCloudflareChallenge(response)
+
+                // A challenge is transient: the response that carries it also sets the
+                // __cf_bm cookie, so the retry usually goes through.
+                var isRetryable = response.error || response.status >= 500 || response.challenge
 
                 if (isRetryable && n < maxAttempts) {
                     scheduleRetry(retryDelayMs, function() { attempt(n + 1) })
@@ -218,6 +252,12 @@ PlasmoidItem {
                 return
             }
 
+            if (response.challenge) {
+                isLoading = false
+                lastError = "Cloudflare challenge - will retry"
+                return
+            }
+
             if (response.status === 401 || response.status === 403) {
                 isLoading = false
                 lastError = "Session expired - update cookie in config"
@@ -266,6 +306,7 @@ PlasmoidItem {
             }
         }, {
             cookie: "sessionKey=" + cfg_sessionKey,
+            cookieJar: "claude",
             headers: ["Referer: https://claude.ai/", "Origin: https://claude.ai"],
         })
     }
@@ -276,6 +317,11 @@ PlasmoidItem {
 
             if (response.error) {
                 lastError = response.error
+                return
+            }
+
+            if (response.challenge) {
+                lastError = "Cloudflare challenge - will retry"
                 return
             }
 
@@ -293,6 +339,7 @@ PlasmoidItem {
             }
         }, {
             cookie: "sessionKey=" + cfg_sessionKey,
+            cookieJar: "claude",
             headers: ["Referer: https://claude.ai/", "Origin: https://claude.ai"],
         })
     }
@@ -340,6 +387,11 @@ PlasmoidItem {
                 return
             }
 
+            if (response.challenge) {
+                glmError = "Cloudflare challenge - will retry"
+                return
+            }
+
             if (response.status === 401 || response.status === 403) {
                 glmError = "GLM token expired - update in config"
                 return
@@ -359,6 +411,7 @@ PlasmoidItem {
             }
         }, {
             bearerToken: cfg_glmToken,
+            cookieJar: "glm",
         })
     }
 
@@ -418,6 +471,11 @@ PlasmoidItem {
                 return
             }
 
+            if (response.challenge) {
+                codexError = "Cloudflare challenge - will retry"
+                return
+            }
+
             if (response.status === 401 || response.status === 403) {
                 codexError = "Codex token expired - run 'codex' to re-authenticate"
                 return
@@ -437,6 +495,7 @@ PlasmoidItem {
             }
         }, {
             bearerToken: resolvedCodexToken,
+            cookieJar: "codex",
         })
     }
 
