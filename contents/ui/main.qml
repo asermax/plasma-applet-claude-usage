@@ -273,7 +273,9 @@ PlasmoidItem {
         if (!hasClaudeConfig) return
 
         claudeLoading = true
-        lastError = "" in print mode, and polling it does not add to the request
+        lastError = ""
+
+        // /usage runs entirely locally in print mode, and polling it does not add to the request
         // history the report is built from, so this costs no API usage.
         var cmd = "timeout 45 claude -p '/usage' --output-format json 2>/dev/null; echo $?"
 
