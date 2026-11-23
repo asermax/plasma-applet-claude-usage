@@ -34,7 +34,12 @@ PlasmoidItem {
     property bool antigravityAvailable: false
 
     // Shared
-    property bool isLoading: false
+    // Per service, so a slow CLI does not clear the flag for a request that is still running
+    property bool claudeLoading: false
+    property bool glmLoading: false
+    property bool codexLoading: false
+    property bool antigravityLoading: false
+    readonly property bool isLoading: claudeLoading || glmLoading || codexLoading || codexAuthLoading || antigravityLoading
     property var lastUpdated: null
 
     // Configuration properties
@@ -267,15 +272,13 @@ PlasmoidItem {
     function fetchClaudeUsage() {
         if (!hasClaudeConfig) return
 
-        isLoading = true
-        lastError = ""
-
-        // /usage runs entirely locally in print mode, and polling it does not add to the request
+        claudeLoading = true
+        lastError = "" in print mode, and polling it does not add to the request
         // history the report is built from, so this costs no API usage.
         var cmd = "timeout 45 claude -p '/usage' --output-format json 2>/dev/null; echo $?"
 
         requestHandlers[cmd] = function(response) {
-            isLoading = false
+            claudeLoading = false
 
             if (response.status === 124) {
                 lastError = "Claude Code CLI timed out"
@@ -366,11 +369,11 @@ PlasmoidItem {
     function fetchGlmUsage() {
         if (!cfg_glmEnabled || !cfg_glmToken) return
 
-        isLoading = true
+        glmLoading = true
         glmError = ""
 
         curlRequest("https://api.z.ai/api/monitor/usage/quota/limit", function(response) {
-            isLoading = false
+            glmLoading = false
 
             if (response.error) {
                 glmError = response.error
@@ -450,11 +453,11 @@ PlasmoidItem {
     function fetchCodexUsage() {
         if (!cfg_codexEnabled || !resolvedCodexToken) return
 
-        isLoading = true
+        codexLoading = true
         codexError = ""
 
         curlRequest("https://chatgpt.com/backend-api/wham/usage", function(response) {
-            isLoading = false
+            codexLoading = false
 
             if (response.error) {
                 codexError = response.error
@@ -556,7 +559,7 @@ PlasmoidItem {
     function fetchAntigravityUsage() {
         if (!hasAntigravityConfig) return
 
-        isLoading = true
+        antigravityLoading = true
         antigravityError = ""
 
         // agy keeps its OAuth token in KWallet and refreshes it itself, so the applet shells out
@@ -567,7 +570,7 @@ PlasmoidItem {
             + " 2>/dev/null; echo $?"
 
         requestHandlers[cmd] = function(response) {
-            isLoading = false
+            antigravityLoading = false
 
             if (response.status === 124) {
                 antigravityError = "Antigravity CLI timed out"
@@ -850,7 +853,7 @@ PlasmoidItem {
             // Claude ring
             Item {
                 id: claudeRingContainer
-                visible: hasClaudeConfig && (!isLoading || usageData)
+                visible: hasClaudeConfig && (!claudeLoading || usageData)
 
                 property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
@@ -937,7 +940,7 @@ PlasmoidItem {
             // GLM ring
             Item {
                 id: glmRingContainer
-                visible: hasGlmConfig && (!isLoading || glmUsageData)
+                visible: hasGlmConfig && (!glmLoading || glmUsageData)
 
                 property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
@@ -1024,7 +1027,7 @@ PlasmoidItem {
             // Codex (OpenAI) ring
             Item {
                 id: codexRingContainer
-                visible: hasCodexConfig && (!isLoading || codexUsageData)
+                visible: hasCodexConfig && (!(codexLoading || codexAuthLoading) || codexUsageData)
 
                 property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
@@ -1111,7 +1114,7 @@ PlasmoidItem {
             // Antigravity ring
             Item {
                 id: antigravityRingContainer
-                visible: hasAntigravityConfig && (!isLoading || antigravityUsageData)
+                visible: hasAntigravityConfig && (!antigravityLoading || antigravityUsageData)
 
                 property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
@@ -1200,6 +1203,32 @@ PlasmoidItem {
     // ============================================================
     // Full Representation (Popup)
     // ============================================================
+
+    component LoadingRow: RowLayout {
+        id: loadingRow
+
+        property string message
+
+        Layout.fillWidth: true
+        Layout.leftMargin: Kirigami.Units.smallSpacing
+        Layout.rightMargin: Kirigami.Units.smallSpacing
+        Layout.topMargin: Kirigami.Units.smallSpacing
+        spacing: Kirigami.Units.smallSpacing
+
+        PlasmaComponents.BusyIndicator {
+            running: loadingRow.visible
+            implicitWidth: Kirigami.Units.gridUnit
+            implicitHeight: Kirigami.Units.gridUnit
+        }
+
+        PlasmaComponents.Label {
+            text: loadingRow.message
+            font.pixelSize: Kirigami.Units.gridUnit * 0.8
+            color: Kirigami.Theme.disabledTextColor
+            Layout.fillWidth: true
+            wrapMode: Text.WordWrap
+        }
+    }
 
     fullRepresentation: ColumnLayout {
         id: fullRep
@@ -1301,6 +1330,11 @@ PlasmoidItem {
                 Layout.topMargin: Kirigami.Units.smallSpacing
                 Layout.leftMargin: Kirigami.Units.smallSpacing
                 Layout.rightMargin: Kirigami.Units.smallSpacing
+            }
+
+            LoadingRow {
+                visible: claudeLoading && !usageData && lastError === ""
+                message: "Reading usage from the Claude Code CLI"
             }
 
             // Session usage
@@ -1460,6 +1494,11 @@ PlasmoidItem {
                 Layout.rightMargin: Kirigami.Units.smallSpacing
             }
 
+            LoadingRow {
+                visible: glmLoading && !glmUsageData && glmError === ""
+                message: "Fetching usage from z.ai"
+            }
+
             // Session (5h window) - progress bar
             ColumnLayout {
                 visible: glmUsageData && glmUsageData.tokensLimit
@@ -1615,6 +1654,11 @@ PlasmoidItem {
                 Layout.topMargin: Kirigami.Units.smallSpacing
                 Layout.leftMargin: Kirigami.Units.smallSpacing
                 Layout.rightMargin: Kirigami.Units.smallSpacing
+            }
+
+            LoadingRow {
+                visible: (codexLoading || codexAuthLoading) && !codexUsageData && codexError === ""
+                message: "Fetching usage from ChatGPT"
             }
 
             // Session usage (primary window - 5h)
@@ -1795,6 +1839,11 @@ PlasmoidItem {
                 Layout.topMargin: Kirigami.Units.smallSpacing
                 Layout.leftMargin: Kirigami.Units.smallSpacing
                 Layout.rightMargin: Kirigami.Units.smallSpacing
+            }
+
+            LoadingRow {
+                visible: antigravityLoading && !antigravityUsageData && antigravityError === ""
+                message: "Reading quota from the Antigravity CLI"
             }
 
             // Gemini session usage (5h window)
