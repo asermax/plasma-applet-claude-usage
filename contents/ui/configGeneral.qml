@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
+import org.kde.plasma.plasma5support as Plasma5Support
 import org.kde.plasma.components as PlasmaComponents
 
 PlasmaComponents.ScrollView {
@@ -10,12 +11,15 @@ PlasmaComponents.ScrollView {
     contentWidth: availableWidth
     padding: Kirigami.Units.gridUnit
 
+    property bool claudeAvailable: false
+    property bool antigravityAvailable: false
+
     // Plasma only scans the config page's ROOT item for cfg_* properties, so
     // every alias has to live here rather than on the inner FormLayout.
     property alias cfg_claudeEnabled: claudeEnabledSwitch.checked
     property alias cfg_glmEnabled: glmEnabledSwitch.checked
     property alias cfg_codexEnabled: codexEnabledSwitch.checked
-    property alias cfg_sessionKey: sessionKeyField.text
+    property alias cfg_antigravityEnabled: antigravityEnabledSwitch.checked
     property alias cfg_glmToken: glmTokenField.text
     property alias cfg_codexToken: codexTokenField.text
     property alias cfg_refreshInterval: refreshIntervalSpinBox.value
@@ -29,27 +33,22 @@ PlasmaComponents.ScrollView {
 
         Kirigami.Separator {
             Kirigami.FormData.isSection: true
-            Kirigami.FormData.label: i18n("Claude Authentication")
+            Kirigami.FormData.label: i18n("Claude (Claude Code CLI)")
         }
 
         Switch {
             id: claudeEnabledSwitch
             Kirigami.FormData.label: i18n("Enabled:")
-        }
-
-        TextField {
-            id: sessionKeyField
-            Kirigami.FormData.label: i18n("Session Key:")
-            placeholderText: i18n("Paste your claude.ai sessionKey cookie here")
-            echoMode: TextInput.Password
-            Layout.fillWidth: true
+            enabled: scrollView.claudeAvailable
         }
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
-            text: i18n("To get your session key:\n1. Go to claude.ai in your browser and login\n2. Open DevTools (F12) → Application → Cookies\n3. Copy the 'sessionKey' value")
+            text: scrollView.claudeAvailable
+                ? i18n("Usage is read from the Claude Code CLI with 'claude -p \"/usage\"', so no session key is needed.\nRun 'claude' once to log in if the widget reports an auth error.")
+                : i18n("The Claude Code CLI ('claude') was not found in PATH, so this cannot be enabled.\nInstall the claude-code package to track Claude usage.")
             font: Kirigami.Theme.smallFont
-            color: Kirigami.Theme.disabledTextColor
+            color: scrollView.claudeAvailable ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
             Layout.topMargin: Kirigami.Units.smallSpacing
         }
@@ -110,6 +109,28 @@ PlasmaComponents.ScrollView {
 
         Kirigami.Separator {
             Kirigami.FormData.isSection: true
+            Kirigami.FormData.label: i18n("Antigravity")
+        }
+
+        Switch {
+            id: antigravityEnabledSwitch
+            Kirigami.FormData.label: i18n("Enabled:")
+            enabled: scrollView.antigravityAvailable
+        }
+
+        PlasmaComponents.Label {
+            Layout.fillWidth: true
+            text: scrollView.antigravityAvailable
+                ? i18n("Quota is read from the Antigravity CLI with 'agy -p \"/quota\"', so no token is needed.\nRun 'agy' once to log in if the widget reports an auth error.")
+                : i18n("The Antigravity CLI ('agy') was not found in PATH, so this cannot be enabled.\nInstall the antigravity-cli package to track Antigravity quota.")
+            font: Kirigami.Theme.smallFont
+            color: scrollView.antigravityAvailable ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.negativeTextColor
+            wrapMode: Text.WordWrap
+            Layout.topMargin: Kirigami.Units.smallSpacing
+        }
+
+        Kirigami.Separator {
+            Kirigami.FormData.isSection: true
             Kirigami.FormData.label: i18n("Display Options")
         }
 
@@ -139,5 +160,25 @@ PlasmaComponents.ScrollView {
             stepSize: 5
             editable: true
         }
+    }
+
+    Plasma5Support.DataSource {
+        id: toolProbe
+        engine: "executable"
+        connectedSources: []
+
+        onNewData: function(sourceName, data) {
+            var available = data["exit code"] === 0
+
+            if (sourceName === "command -v claude") scrollView.claudeAvailable = available
+            if (sourceName === "command -v agy") scrollView.antigravityAvailable = available
+
+            disconnectSource(sourceName)
+        }
+    }
+
+    Component.onCompleted: {
+        toolProbe.connectSource("command -v claude")
+        toolProbe.connectSource("command -v agy")
     }
 }

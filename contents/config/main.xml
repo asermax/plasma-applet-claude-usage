@@ -22,6 +22,11 @@
             <label>Enable Codex tracking</label>
         </entry>
 
+        <entry name="antigravityEnabled" type="Bool">
+            <default>false</default>
+            <label>Enable Antigravity tracking</label>
+        </entry>
+
         <entry name="refreshInterval" type="Int">
             <default>300</default>
             <label>Refresh interval in seconds</label>
@@ -44,12 +49,6 @@
             <whatsthis>Usage percentage above which the progress bar color changes to critical</whatsthis>
             <min>0</min>
             <max>100</max>
-        </entry>
-
-        <entry name="sessionKey" type="String">
-            <default></default>
-            <label>Session Key</label>
-            <whatsthis>The sessionKey cookie value from claude.ai (found in browser DevTools → Application → Cookies)</whatsthis>
         </entry>
 
         <entry name="glmToken" type="String">

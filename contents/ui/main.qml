@@ -16,6 +16,7 @@ PlasmoidItem {
     // Claude
     property var usageData: null
     property string lastError: ""
+    property bool claudeAvailable: false
 
     // GLM
     property var glmUsageData: null
@@ -27,6 +28,11 @@ PlasmoidItem {
     property string resolvedCodexToken: ""  // loaded from auth.json or config
     property bool codexAuthLoading: false
 
+    // Antigravity (agy CLI)
+    property var antigravityUsageData: null
+    property string antigravityError: ""
+    property bool antigravityAvailable: false
+
     // Shared
     property bool isLoading: false
     property var lastUpdated: null
@@ -35,7 +41,7 @@ PlasmoidItem {
     property bool cfg_claudeEnabled: plasmoid.configuration.claudeEnabled
     property bool cfg_glmEnabled: plasmoid.configuration.glmEnabled
     property bool cfg_codexEnabled: plasmoid.configuration.codexEnabled
-    property string cfg_sessionKey: plasmoid.configuration.sessionKey
+    property bool cfg_antigravityEnabled: plasmoid.configuration.antigravityEnabled
     property string cfg_glmToken: plasmoid.configuration.glmToken
     property string cfg_codexToken: plasmoid.configuration.codexToken
     property int cfg_refreshInterval: plasmoid.configuration.refreshInterval
@@ -43,10 +49,11 @@ PlasmoidItem {
     property int cfg_criticalThreshold: plasmoid.configuration.criticalThreshold
 
     // Derived
-    property bool hasClaudeConfig: cfg_claudeEnabled && cfg_sessionKey !== ""
+    property bool hasClaudeConfig: cfg_claudeEnabled && claudeAvailable
     property bool hasGlmConfig: cfg_glmEnabled && cfg_glmToken !== ""
     property bool hasCodexConfig: cfg_codexEnabled && resolvedCodexToken !== ""
-    property bool hasAnyConfig: hasClaudeConfig || hasGlmConfig || hasCodexConfig
+    property bool hasAntigravityConfig: cfg_antigravityEnabled && antigravityAvailable
+    property bool hasAnyConfig: hasClaudeConfig || hasGlmConfig || hasCodexConfig || hasAntigravityConfig
 
     // ============================================================
     // Timer for periodic refresh
@@ -144,10 +151,6 @@ PlasmoidItem {
             cmd += " -H 'Authorization: Bearer " + opts.bearerToken + "'"
         }
 
-        if (opts.cookie) {
-            cmd += " --cookie " + shellEscape(opts.cookie)
-        }
-
         // Cloudflare hands out a __cf_bm bot-management cookie on every response. Unless it
         // is stored and replayed, each request looks like a brand-new unvetted client and
         // roughly one in six comes back as a 403 challenge page instead of data.
@@ -236,137 +239,124 @@ PlasmoidItem {
     }
 
     // ============================================================
-    // Claude data fetching
+    // Claude data fetching (Claude Code CLI)
     // ============================================================
 
-    function fetchUsage() {
-        if (!cfg_claudeEnabled || !cfg_sessionKey) return
+    function probeClaude() {
+        var cmd = "command -v claude >/dev/null 2>&1; echo $?"
+
+        requestHandlers[cmd] = function(response) {
+            claudeAvailable = response.status === 0
+
+            if (!claudeAvailable) {
+                usageData = null
+
+                if (cfg_claudeEnabled) {
+                    lastError = "Claude Code CLI (claude) not found in PATH"
+                }
+
+                return
+            }
+
+            fetchClaudeUsage()
+        }
+
+        executable.connectSource(cmd)
+    }
+
+    function fetchClaudeUsage() {
+        if (!hasClaudeConfig) return
 
         isLoading = true
         lastError = ""
 
-        curlRequest("https://claude.ai/api/organizations", function(response) {
-            if (response.error) {
-                isLoading = false
-                lastError = response.error
-                return
-            }
+        // /usage runs entirely locally in print mode, and polling it does not add to the request
+        // history the report is built from, so this costs no API usage.
+        var cmd = "timeout 45 claude -p '/usage' --output-format json 2>/dev/null; echo $?"
 
-            if (response.challenge) {
-                isLoading = false
-                lastError = "Cloudflare challenge - will retry"
-                return
-            }
-
-            if (response.status === 401 || response.status === 403) {
-                isLoading = false
-                lastError = "Session expired - update cookie in config"
-                return
-            }
-
-            if (response.status !== 200) {
-                isLoading = false
-                lastError = "Failed to fetch organizations: " + response.status
-                return
-            }
-
-            try {
-                var orgs = JSON.parse(response.body)
-                var orgId = null
-                var fallbackOrgId = null
-
-                // Prefer orgs with a paid subscription
-                for (var i = 0; i < orgs.length; i++) {
-                    var org = orgs[i]
-                    var hasChat = org.capabilities && org.capabilities.indexOf("chat") >= 0
-
-                    if (!hasChat) continue
-
-                    if (org.billing_type && org.billing_type !== "none") {
-                        orgId = org.uuid
-                        break
-                    }
-
-                    if (!fallbackOrgId) {
-                        fallbackOrgId = org.uuid
-                    }
-                }
-
-                orgId = orgId || fallbackOrgId || (orgs.length > 0 ? orgs[0].uuid : null)
-
-                if (orgId) {
-                    fetchUsageData(orgId)
-                } else {
-                    isLoading = false
-                    lastError = "No organization found"
-                }
-            } catch (e) {
-                isLoading = false
-                lastError = "Failed to parse organizations"
-            }
-        }, {
-            cookie: "sessionKey=" + cfg_sessionKey,
-            cookieJar: "claude",
-            headers: ["Referer: https://claude.ai/", "Origin: https://claude.ai"],
-        })
-    }
-
-    function fetchUsageData(orgId) {
-        curlRequest("https://claude.ai/api/organizations/" + orgId + "/usage", function(response) {
+        requestHandlers[cmd] = function(response) {
             isLoading = false
 
-            if (response.error) {
-                lastError = response.error
+            if (response.status === 124) {
+                lastError = "Claude Code CLI timed out"
                 return
             }
 
-            if (response.challenge) {
-                lastError = "Cloudflare challenge - will retry"
-                return
-            }
-
-            if (response.status !== 200) {
-                lastError = "Failed to fetch usage: " + response.status
+            if (response.status !== 0) {
+                lastError = "Claude Code CLI failed (exit " + response.status + ")"
                 return
             }
 
             try {
-                var data = JSON.parse(response.body)
-                processUsageData(data)
+                processClaudeUsage(JSON.parse(response.body))
                 lastUpdated = new Date()
             } catch (e) {
-                lastError = "Failed to parse usage data"
-            }
-        }, {
-            cookie: "sessionKey=" + cfg_sessionKey,
-            cookieJar: "claude",
-            headers: ["Referer: https://claude.ai/", "Origin: https://claude.ai"],
-        })
-    }
-
-    function processUsageData(data) {
-        var newData = {}
-
-        // Session (5-hour window)
-        if (data.five_hour && data.five_hour.utilization !== undefined) {
-            newData.session = {
-                used: data.five_hour.utilization,
-                resets_at: data.five_hour.resets_at,
-                resets_in: formatTimeRemaining(parseISODate(data.five_hour.resets_at)),
+                lastError = "Failed to parse Claude Code output"
             }
         }
 
-        // Weekly (7-day window)
-        if (data.seven_day && data.seven_day.utilization !== undefined) {
-            newData.weekly = {
-                used: data.seven_day.utilization,
-                resets_at: data.seven_day.resets_at,
-                resets_in: formatTimeRemaining(parseISODate(data.seven_day.resets_at)),
-            }
+        executable.connectSource(cmd)
+    }
+
+    function processClaudeUsage(payload) {
+        var result = payload ? payload.result : null
+
+        if (!result) {
+            lastError = "Unexpected Claude Code output"
+            return
+        }
+
+        var newData = {}
+        var lines = result.split("\n")
+
+        for (var i = 0; i < lines.length; i++) {
+            var entry = parseClaudeUsageLine(lines[i])
+
+            if (!entry) continue
+
+            if (lines[i].indexOf("Current session:") === 0) newData.session = entry
+            if (lines[i].indexOf("Current week (all models):") === 0) newData.weekly = entry
+        }
+
+        if (!newData.session && !newData.weekly) {
+            lastError = "No usage reported by Claude Code"
+            return
         }
 
         usageData = newData
         lastError = ""
+    }
+
+    // e.g. "Current week (all models): 99% used · resets Nov 24, 5:59am (America/Argentina/Buenos_Aires)"
+    function parseClaudeUsageLine(line) {
+        var percent = /(\d+)% used/.exec(line)
+
+        if (!percent) return null
+
+        var reset = /resets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{1,2}):(\d{2})(am|pm)/.exec(line)
+        var resetsAt = reset ? claudeResetDate(reset) : null
+
+        return {
+            used: parseInt(percent[1]),
+            resets_at: resetsAt,
+            resets_in: resetsAt ? formatTimeRemaining(resetsAt) : "",
+        }
+    }
+
+    // The CLI omits the year, so a reset date that lands more than a day in the past belongs to
+    // the next year.
+    function claudeResetDate(match) {
+        var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        var now = new Date()
+        var hour = parseInt(match[3]) % 12
+
+        if (match[5] === "pm") hour += 12
+
+        var resetsAt = new Date(now.getFullYear(), months.indexOf(match[1]), parseInt(match[2]), hour, parseInt(match[4]))
+
+        if (resetsAt - now < -86400000) resetsAt.setFullYear(now.getFullYear() + 1)
+
+        return resetsAt
     }
 
     // ============================================================
@@ -538,20 +528,119 @@ PlasmoidItem {
     }
 
     // ============================================================
+    // Antigravity (agy CLI) data fetching
+    // ============================================================
+
+    function probeAntigravity() {
+        var cmd = "command -v agy >/dev/null 2>&1; echo $?"
+
+        requestHandlers[cmd] = function(response) {
+            antigravityAvailable = response.status === 0
+
+            if (!antigravityAvailable) {
+                antigravityUsageData = null
+
+                if (cfg_antigravityEnabled) {
+                    antigravityError = "Antigravity CLI (agy) not found in PATH"
+                }
+
+                return
+            }
+
+            fetchAntigravityUsage()
+        }
+
+        executable.connectSource(cmd)
+    }
+
+    function fetchAntigravityUsage() {
+        if (!hasAntigravityConfig) return
+
+        isLoading = true
+        antigravityError = ""
+
+        // agy keeps its OAuth token in KWallet and refreshes it itself, so the applet shells out
+        // to its quota command instead of calling the API. --log-file keeps every poll out of
+        // ~/.gemini/antigravity-cli/log.
+        var cmd = "mkdir -p " + cacheDirExpr
+            + " && timeout 30 agy -p '/quota' --output-format json --log-file \"$HOME/.cache/plasma-claude-usage/antigravity-cli.log\""
+            + " 2>/dev/null; echo $?"
+
+        requestHandlers[cmd] = function(response) {
+            isLoading = false
+
+            if (response.status === 124) {
+                antigravityError = "Antigravity CLI timed out"
+                return
+            }
+
+            if (response.status !== 0) {
+                antigravityError = "Antigravity CLI failed (exit " + response.status + ")"
+                return
+            }
+
+            try {
+                processAntigravityData(JSON.parse(response.body))
+                lastUpdated = new Date()
+            } catch (e) {
+                antigravityError = "Failed to parse Antigravity data"
+            }
+        }
+
+        executable.connectSource(cmd)
+    }
+
+    function processAntigravityData(payload) {
+        var groups = payload && payload.command && payload.command.data ? payload.command.data.groups : null
+
+        if (!groups) {
+            antigravityError = "Unexpected Antigravity output"
+            return
+        }
+
+        var newData = {}
+
+        for (var i = 0; i < groups.length; i++) {
+            if (groups[i].name !== "Gemini Models") continue
+
+            var buckets = groups[i].buckets || []
+
+            for (var j = 0; j < buckets.length; j++) {
+                var bucket = buckets[j]
+
+                if (bucket.remaining_fraction == null) continue
+
+                var entry = {
+                    used: (1 - bucket.remaining_fraction) * 100,
+                    resets_at: bucket.reset_time ? new Date(bucket.reset_time) : null,
+                    resets_in: bucket.reset_time ? formatTimeRemaining(new Date(bucket.reset_time)) : "",
+                }
+
+                if (bucket.window === "5h") newData.session = entry
+                if (bucket.window === "weekly") newData.weekly = entry
+            }
+        }
+
+        if (!newData.session && !newData.weekly) {
+            antigravityError = "No Gemini quota reported by Antigravity"
+            return
+        }
+
+        antigravityUsageData = newData
+        antigravityError = ""
+    }
+
+    // ============================================================
     // Shared utilities
     // ============================================================
 
     function refreshAll() {
         if (isLoading) return
 
-        if (hasClaudeConfig) fetchUsage()
+        if (hasClaudeConfig) fetchClaudeUsage()
         if (hasGlmConfig) fetchGlmUsage()
         if (hasCodexConfig) fetchCodexUsage()
-    }
-
-    function parseISODate(dateStr) {
-        if (!dateStr) return null
-        return new Date(dateStr)
+        if (hasAntigravityConfig) fetchAntigravityUsage()
     }
 
     function formatTimeRemaining(resetsAt) {
@@ -657,11 +746,26 @@ PlasmoidItem {
             }
         }
 
+        if (hasAntigravityConfig && antigravityUsageData) {
+            if (antigravityUsageData.session) {
+                var text = "Antigravity Session: " + Math.round(antigravityUsageData.session.used) + "%"
+                if (antigravityUsageData.session.resets_in) text += " - " + antigravityUsageData.session.resets_in
+                parts.push(text)
+            }
+
+            if (antigravityUsageData.weekly) {
+                var text = "Antigravity Weekly: " + Math.round(antigravityUsageData.weekly.used) + "%"
+                if (antigravityUsageData.weekly.resets_in) text += " - " + antigravityUsageData.weekly.resets_in
+                parts.push(text)
+            }
+        }
+
         if (parts.length === 0) {
             if (!hasAnyConfig) return "No service configured"
             if (lastError) return lastError
             if (glmError) return glmError
             if (codexError) return codexError
+            if (antigravityError) return antigravityError
             return "Loading..."
         }
 
@@ -670,7 +774,7 @@ PlasmoidItem {
 
     // Watch for configuration changes
     onCfg_claudeEnabledChanged: {
-        if (cfg_claudeEnabled) fetchUsage()
+        if (cfg_claudeEnabled) probeClaude()
         else usageData = null
     }
 
@@ -684,11 +788,9 @@ PlasmoidItem {
         else codexUsageData = null
     }
 
-    onCfg_sessionKeyChanged: {
-        usageData = null
-        if (cfg_sessionKey) {
-            fetchUsage()
-        }
+    onCfg_antigravityEnabledChanged: {
+        if (cfg_antigravityEnabled) probeAntigravity()
+        else antigravityUsageData = null
     }
 
     onCfg_glmTokenChanged: {
@@ -721,6 +823,7 @@ PlasmoidItem {
             if (hasClaudeConfig) rings++
             if (hasGlmConfig) rings++
             if (hasCodexConfig) rings++
+            if (hasAntigravityConfig) rings++
             return Math.max(rings, 1)
         }
 
@@ -734,8 +837,8 @@ PlasmoidItem {
 
         PlasmaComponents.BusyIndicator {
             anchors.centerIn: parent
-            running: isLoading && !usageData && !glmUsageData && !codexUsageData
-            visible: isLoading && !usageData && !glmUsageData && !codexUsageData
+            running: isLoading && !usageData && !glmUsageData && !codexUsageData && !antigravityUsageData
+            visible: isLoading && !usageData && !glmUsageData && !codexUsageData && !antigravityUsageData
             implicitWidth: Kirigami.Units.gridUnit
             implicitHeight: Kirigami.Units.gridUnit
         }
@@ -749,7 +852,7 @@ PlasmoidItem {
                 id: claudeRingContainer
                 visible: hasClaudeConfig && (!isLoading || usageData)
 
-                property real ringSize: Math.min(compactRep.height, compactRep.width / Math.max(1, (hasClaudeConfig ? 1 : 0) + (hasGlmConfig ? 1 : 0) + (hasCodexConfig ? 1 : 0))) - Kirigami.Units.smallSpacing
+                property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
                 width: ringSize
                 height: ringSize
@@ -836,7 +939,7 @@ PlasmoidItem {
                 id: glmRingContainer
                 visible: hasGlmConfig && (!isLoading || glmUsageData)
 
-                property real ringSize: Math.min(compactRep.height, compactRep.width / Math.max(1, (hasClaudeConfig ? 1 : 0) + (hasGlmConfig ? 1 : 0) + (hasCodexConfig ? 1 : 0))) - Kirigami.Units.smallSpacing
+                property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
                 width: ringSize
                 height: ringSize
@@ -923,7 +1026,7 @@ PlasmoidItem {
                 id: codexRingContainer
                 visible: hasCodexConfig && (!isLoading || codexUsageData)
 
-                property real ringSize: Math.min(compactRep.height, compactRep.width / Math.max(1, (hasClaudeConfig ? 1 : 0) + (hasGlmConfig ? 1 : 0) + (hasCodexConfig ? 1 : 0))) - Kirigami.Units.smallSpacing
+                property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
 
                 width: ringSize
                 height: ringSize
@@ -1004,6 +1107,93 @@ PlasmoidItem {
                     verticalAlignment: Text.AlignVCenter
                 }
             }
+
+            // Antigravity ring
+            Item {
+                id: antigravityRingContainer
+                visible: hasAntigravityConfig && (!isLoading || antigravityUsageData)
+
+                property real ringSize: Math.min(compactRep.height, compactRep.width / compactRep.ringCount) - Kirigami.Units.smallSpacing
+
+                width: ringSize
+                height: ringSize
+
+                Shape {
+                    id: antigravityRing
+                    anchors.fill: parent
+                    layer.enabled: true
+                    layer.samples: 8
+
+                    property real ringWidth: antigravityRingContainer.ringSize * 0.15
+                    property real ringRadius: (antigravityRingContainer.ringSize - ringWidth) / 2
+                    property real centerXY: antigravityRingContainer.ringSize / 2
+
+                    property bool hasError: antigravityError && !antigravityUsageData
+                    property bool hasData: antigravityUsageData && antigravityUsageData.session
+                    property real sessionUsed: hasData ? antigravityUsageData.session.used : 0
+
+                    property real sweepAngle: {
+                        if (hasError) return 360
+                        if (hasData) return (Math.min(Math.max(sessionUsed, 0), 100) / 100) * 360
+                        return 0
+                    }
+
+                    property color arcColor: {
+                        if (hasError) return Kirigami.Theme.negativeTextColor
+                        if (hasData) return getUsageColor(sessionUsed)
+                        return Kirigami.Theme.disabledTextColor
+                    }
+
+                    // Background track
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: Qt.rgba(
+                            Kirigami.Theme.textColor.r,
+                            Kirigami.Theme.textColor.g,
+                            Kirigami.Theme.textColor.b,
+                            0.15
+                        )
+                        strokeWidth: antigravityRing.ringWidth
+                        capStyle: ShapePath.RoundCap
+
+                        PathAngleArc {
+                            centerX: antigravityRing.centerXY
+                            centerY: antigravityRing.centerXY
+                            radiusX: antigravityRing.ringRadius
+                            radiusY: antigravityRing.ringRadius
+                            startAngle: -90
+                            sweepAngle: 360
+                        }
+                    }
+
+                    // Foreground progress arc
+                    ShapePath {
+                        fillColor: "transparent"
+                        strokeColor: antigravityRing.arcColor
+                        strokeWidth: antigravityRing.ringWidth
+                        capStyle: ShapePath.RoundCap
+
+                        PathAngleArc {
+                            centerX: antigravityRing.centerXY
+                            centerY: antigravityRing.centerXY
+                            radiusX: antigravityRing.ringRadius
+                            radiusY: antigravityRing.ringRadius
+                            startAngle: -90
+                            sweepAngle: antigravityRing.sweepAngle
+                        }
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    anchors.centerIn: parent
+                    text: "A"
+                    font.pixelSize: antigravityRingContainer.ringSize * 0.45
+                    font.bold: true
+                    color: "white"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
         }
     }
 
@@ -1070,7 +1260,7 @@ PlasmoidItem {
             }
 
             PlasmaComponents.Label {
-                text: "Click the configure button to add\nyour Claude session key or GLM token"
+                text: "Click the configure button to pick\nthe services you want to track"
                 font.pixelSize: Kirigami.Units.gridUnit * 0.8
                 color: Kirigami.Theme.disabledTextColor
                 Layout.fillWidth: true
@@ -1098,21 +1288,6 @@ PlasmoidItem {
                 font.bold: true
                 font.pixelSize: Kirigami.Units.gridUnit * 0.9
                 Layout.leftMargin: Kirigami.Units.smallSpacing
-            }
-
-            // Unconfigured
-            ColumnLayout {
-                visible: !hasClaudeConfig
-                Layout.fillWidth: true
-                Layout.topMargin: Kirigami.Units.smallSpacing
-                spacing: Kirigami.Units.smallSpacing
-
-                PlasmaComponents.Label {
-                    text: "Configure your session key in settings"
-                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
-                    color: Kirigami.Theme.disabledTextColor
-                    Layout.alignment: Qt.AlignHCenter
-                }
             }
 
             // Error state
@@ -1249,7 +1424,7 @@ PlasmoidItem {
 
         // Separator between sections
         Kirigami.Separator {
-            visible: hasClaudeConfig && hasGlmConfig
+            visible: hasClaudeConfig && (hasGlmConfig || hasCodexConfig || hasAntigravityConfig)
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.largeSpacing
@@ -1406,7 +1581,7 @@ PlasmoidItem {
 
         // Separator between GLM and Codex
         Kirigami.Separator {
-            visible: hasCodexConfig && (hasClaudeConfig || hasGlmConfig)
+            visible: hasGlmConfig && (hasCodexConfig || hasAntigravityConfig)
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.largeSpacing
             Layout.bottomMargin: Kirigami.Units.largeSpacing
@@ -1584,6 +1759,163 @@ PlasmoidItem {
             }
         }
 
+        // Separator between Codex and Antigravity
+        Kirigami.Separator {
+            visible: hasCodexConfig && hasAntigravityConfig
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.largeSpacing
+            Layout.bottomMargin: Kirigami.Units.largeSpacing
+        }
+
+        // ============================================================
+        // Antigravity section
+        // ============================================================
+
+        ColumnLayout {
+            visible: hasAntigravityConfig
+            Layout.fillWidth: true
+            spacing: 0
+
+            // Section title
+            PlasmaComponents.Label {
+                text: "Antigravity"
+                font.bold: true
+                font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+            }
+
+            // Error state
+            PlasmaComponents.Label {
+                visible: hasAntigravityConfig && antigravityError !== "" && !antigravityUsageData
+                text: antigravityError
+                color: Kirigami.Theme.negativeTextColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+            }
+
+            // Gemini session usage (5h window)
+            ColumnLayout {
+                visible: antigravityUsageData && antigravityUsageData.session
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.smallSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Gemini (5h window)"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+
+                        property real progressValue: antigravityUsageData && antigravityUsageData.session ? antigravityUsageData.session.used : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: antigravityUsageData && antigravityUsageData.session
+                                ? getUsageColor(antigravityUsageData.session.used)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: antigravityUsageData && antigravityUsageData.session
+                            ? Math.round(antigravityUsageData.session.used) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: antigravityUsageData && antigravityUsageData.session ? antigravityUsageData.session.resets_in : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
+            }
+
+            // Gemini weekly usage (7 day window)
+            ColumnLayout {
+                visible: antigravityUsageData && antigravityUsageData.weekly
+                Layout.fillWidth: true
+                Layout.leftMargin: Kirigami.Units.smallSpacing
+                Layout.rightMargin: Kirigami.Units.smallSpacing
+                Layout.topMargin: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing
+
+                PlasmaComponents.Label {
+                    text: "Gemini (7 day window)"
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.9
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        implicitHeight: Kirigami.Units.gridUnit * 0.4
+                        radius: height / 2
+                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+
+                        property real progressValue: antigravityUsageData && antigravityUsageData.weekly ? antigravityUsageData.weekly.used : 0
+
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            width: parent.width * (Math.min(Math.max(parent.progressValue, 0), 100) / 100)
+                            radius: parent.radius
+                            color: antigravityUsageData && antigravityUsageData.weekly
+                                ? getUsageColor(antigravityUsageData.weekly.used)
+                                : Kirigami.Theme.highlightColor
+
+                            Behavior on width {
+                                NumberAnimation { duration: 200 }
+                            }
+                        }
+                    }
+
+                    PlasmaComponents.Label {
+                        text: antigravityUsageData && antigravityUsageData.weekly
+                            ? Math.round(antigravityUsageData.weekly.used) + "%"
+                            : "0%"
+                        font.bold: true
+                        Layout.minimumWidth: Kirigami.Units.gridUnit * 2
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+
+                PlasmaComponents.Label {
+                    text: antigravityUsageData && antigravityUsageData.weekly ? antigravityUsageData.weekly.resets_in : ""
+                    font.pixelSize: Kirigami.Units.gridUnit * 0.8
+                    color: Kirigami.Theme.disabledTextColor
+                }
+            }
+        }
+
         // Footer with last updated time
         PlasmaComponents.Label {
             Layout.fillWidth: true
@@ -1602,8 +1934,9 @@ PlasmoidItem {
     // ============================================================
 
     Component.onCompleted: {
-        if (hasClaudeConfig) fetchUsage()
+        probeClaude()
         if (hasGlmConfig) fetchGlmUsage()
         resolveCodexToken()
+        probeAntigravity()
     }
 }
