@@ -332,20 +332,28 @@ PlasmoidItem {
         lastError = ""
     }
 
-    // e.g. "Current week (all models): 99% used · resets Nov 24, 5:59am (America/Argentina/Buenos_Aires)"
+    // e.g. "Current week (all models): 99% used · resets Nov 24, 5:59am (America/Argentina/Buenos_Aires)",
+    // or "resets Nov 27, 3am" when the reset lands on the hour
     function parseClaudeUsageLine(line) {
         var percent = /(\d+)% used/.exec(line)
 
         if (!percent) return null
 
-        var reset = /resets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{1,2}):(\d{2})(am|pm)/.exec(line)
-        var resetsAt = reset ? claudeResetDate(reset) : null
+        var match = /resets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{1,2})(?::(\d{2}))?(am|pm)/.exec(line)
+        var resetsAt = match ? claudeResetDate(match) : null
 
         return {
             used: parseInt(percent[1]),
             resets_at: resetsAt,
-            resets_in: resetsAt ? formatTimeRemaining(resetsAt) : "",
+            resets_in: resetsAt ? formatTimeRemaining(resetsAt) : claudeResetText(line),
         }
+    }
+
+    // Shows the clause verbatim when the date cannot be parsed, rather than showing nothing
+    function claudeResetText(line) {
+        var clause = /resets ([^()·]+)/.exec(line)
+
+        return clause ? "Resets " + clause[1].trim() : ""
     }
 
     // The CLI omits the year, so a reset date that lands more than a day in the past belongs to
@@ -357,7 +365,7 @@ PlasmoidItem {
 
         if (match[5] === "pm") hour += 12
 
-        var resetsAt = new Date(now.getFullYear(), months.indexOf(match[1]), parseInt(match[2]), hour, parseInt(match[4]))
+        var resetsAt = new Date(now.getFullYear(), months.indexOf(match[1]), parseInt(match[2]), hour, match[4] ? parseInt(match[4]) : 0)
 
         if (resetsAt - now < -86400000) resetsAt.setFullYear(now.getFullYear() + 1)
 
